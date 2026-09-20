@@ -1,0 +1,53 @@
+{
+  "manifest": {
+    "event_count": 4,
+    "format": "iim.audit.v1",
+    "head": "f5b757f35326c4aa6f7416cbb9d7ea004dec229a186542f1d212bd4312fdd54c",
+    "session": {
+      "consent": {
+        "accepted": true,
+        "audio_devices": false,
+        "displays": true,
+        "extensions": false,
+        "gaze": false,
+        "processes": true,
+        "synthetic": true,
+        "version": "iim-consent-1",
+        "windows": true
+      },
+      "created_at": "2026-09-18T19:38:21.061254+00:00",
+      "ended_at": "2026-09-18T19:38:21.073380+00:00",
+      "expires_at": "2026-09-19T19:38:21.061254+00:00",
+      "id": "synthetic-sample-not-a-real-interview",
+      "status": "stopped"
+    }
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "payload_json": "{\"data\":{\"accepted\":true,\"audio_devices\":false,\"displays\":true,\"extensions\":false,\"gaze\":false,\"processes\":true,\"synthetic\":true,\"version\":\"iim-consent-1\",\"windows\":true},\"kind\":\"consent\",\"time\":\"2026-09-18T19:38:21.062269+00:00\"}",
+      "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "event_hash": "2a6cdef86e16a5145a04bdbed11f66d10baa971241d9ac2ff3beb6bc4c560f40"
+    },
+    {
+      "sequence": 2,
+      "payload_json": "{\"data\":{\"results\":[{\"detail\":\"Synthetic metadata example; hidden GPU layers are unknown.\",\"detector\":\"OverlayDetector\",\"metrics\":{},\"signals\":[{\"confidence\":0.8,\"detector\":\"OverlayDetector\",\"evidence\":{\"layered\":true,\"source\":\"synthetic fixture\",\"topmost\":true},\"explanation\":\"A synthetic window combines elevated stacking with overlay-like attributes.\",\"id\":\"784e1f307500d964\",\"limitation\":\"Captions, accessibility tools and meeting controls can produce the same properties.\",\"title\":\"Overlay-style window observed\",\"weight\":0.5}],\"status\":\"partial\"},{\"detail\":\"Synthetic sample: no matching names.\",\"detector\":\"ProcessDetector\",\"metrics\":{},\"signals\":[],\"status\":\"partial\"},{\"detail\":\"Not selected; audio is never recorded.\",\"detector\":\"AudioCaptureDetector\",\"metrics\":{},\"signals\":[],\"status\":\"disabled\"},{\"detail\":\"Not selected; eye position is excluded from the index.\",\"detector\":\"GazeDetector\",\"metrics\":{},\"signals\":[],\"status\":\"disabled\"},{\"detail\":\"Synthetic active-adapter metadata; hidden hardware is unknown.\",\"detector\":\"VirtualDisplayDetector\",\"metrics\":{},\"signals\":[],\"status\":\"partial\"},{\"detail\":\"No candidate inventory imported.\",\"detector\":\"BrowserExtensionDetector\",\"metrics\":{},\"signals\":[],\"status\":\"disabled\"}],\"score\":{\"badge\":\"OBSERVATIONS_FOR_REVIEW\",\"coverage\":30,\"label\":\"Review observations\",\"value\":92}},\"kind\":\"sample\",\"time\":\"2026-09-18T19:38:21.065687+00:00\"}",
+      "previous_hash": "2a6cdef86e16a5145a04bdbed11f66d10baa971241d9ac2ff3beb6bc4c560f40",
+      "event_hash": "f230b62e3a6947c3426ace9228218388b4ac0ceeb0b7f917d060b653922223bc"
+    },
+    {
+      "sequence": 3,
+      "payload_json": "{\"data\":{\"detail\":\"SYNTHETIC EXAMPLE: Live captions were agreed before the interview.\",\"time\":\"2026-09-18T19:38:21.068225+00:00\",\"title\":\"Candidate context\"},\"kind\":\"timeline\",\"time\":\"2026-09-18T19:38:21.068225+00:00\"}",
+      "previous_hash": "f230b62e3a6947c3426ace9228218388b4ac0ceeb0b7f917d060b653922223bc",
+      "event_hash": "0841ca28631b1e5700e9a50f1e59d83e5da973cc8718a27c0d1c1b8271414181"
+    },
+    {
+      "sequence": 4,
+      "payload_json": "{\"data\":{\"reason\":\"Synthetic example completed. No person or device was monitored.\"},\"kind\":\"stopped\",\"time\":\"2026-09-18T19:38:21.071373+00:00\"}",
+      "previous_hash": "0841ca28631b1e5700e9a50f1e59d83e5da973cc8718a27c0d1c1b8271414181",
+      "event_hash": "f5b757f35326c4aa6f7416cbb9d7ea004dec229a186542f1d212bd4312fdd54c"
+    }
+  ],
+  "signature": "7wXJbBKd1WG8sg/qDApNqECD7Cg6+DH8RkOXaQ43EnNqwuBa9vFtVYf8tR9scI9xwwfOOxtZ1CP4O0SY/lNkCQ==",
+  "public_key": "+xeax9ncaGuF9ncpr4SjlppW64Lv7eLN3d/T0A641C4="
+}

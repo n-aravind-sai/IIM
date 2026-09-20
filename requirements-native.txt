@@ -1,0 +1,4 @@
+-r requirements.txt
+opencv-python>=4.10,<5
+sounddevice>=0.5,<0.6
+pyobjc-framework-Quartz>=10,<13; sys_platform == 'darwin'

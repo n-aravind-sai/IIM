@@ -1,0 +1,19 @@
+{
+  "name": "interview-integrity-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python scripts/dev.py",
+    "demo": "python -m http.server 1420 --bind 127.0.0.1 --directory web",
+    "build": "node scripts/build.mjs",
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "sidecar:prepare": "python scripts/prepare_sidecar.py --stage --verify",
+    "sidecar:verify": "python scripts/prepare_sidecar.py --verify",
+    "test:preflight": "node --test tests/preflight.mjs",
+    "test": "python -m unittest discover -s tests -v"
+  },
+  "devDependencies": {"@tauri-apps/cli": "^2.0.0"}
+}
