@@ -15,7 +15,9 @@ from pathlib import Path
 from worker.audit import verify, canonical
 
 
-def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, read_token=None, trusted_keys=None):
+def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, read_token=None, trusted_keys=None, cleanup_interval=60):
+    if not 0 < cleanup_interval <= 60:
+        raise ValueError("cleanup_interval must be greater than zero and at most 60 seconds")
     write_token = write_token or os.environ.get("REPORT_WRITE_TOKEN", "")
     read_token = read_token or os.environ.get("REPORT_READ_TOKEN", "")
     trusted_keys = trusted_keys if trusted_keys is not None else json.loads(os.environ.get("REPORT_TRUSTED_KEYS", "[]"))
@@ -26,6 +28,11 @@ def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, r
     db=sqlite3.connect(folder/'reports.sqlite3',check_same_thread=False)
     db.executescript((Path(__file__).parent/'schema.sql').read_text())
     lock=threading.Lock();limits={}
+    def prune_expired():
+        with lock, db:
+            db.execute('DELETE FROM reports WHERE expires_at <= ?', (time.time(),))
+    prune_expired()  # Remove downtime-expired records before accepting requests.
+    last_cleanup = time.monotonic()
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def reply(self,code,data):
@@ -44,7 +51,6 @@ def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, r
                 bucket=[t for t in limits.get(role,[]) if current-t<60]
                 if len(bucket)>=120:self.reply(429,{'error':'Rate limit'});return False
                 limits[role]=bucket+[current]
-                with db:db.execute('DELETE FROM reports WHERE expires_at < ?',(current,))
             return True
         def do_POST(self):
             if not self.authorized(write=True):return
@@ -72,7 +78,7 @@ def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, r
         def do_GET(self):
             if not self.authorized():return
             identity=self.report_id()
-            with lock:row=db.execute('SELECT bundle_json FROM reports WHERE id=?',(identity,)).fetchone()
+            with lock:row=db.execute('SELECT bundle_json FROM reports WHERE id=? AND expires_at > ?',(identity,time.time())).fetchone()
             if row:self.reply(200,json.loads(row[0]))
             else:self.reply(404,{'error':'Not found or expired'})
         def do_DELETE(self):
@@ -82,15 +88,30 @@ def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, r
             with lock,db:db.execute('DELETE FROM reports WHERE id=?',(identity,))
             self.reply(200,{'deleted':True})
     class ReportServer(ThreadingHTTPServer):
+        daemon_threads = False  # Join handlers before closing their database.
+        def get_request(self):
+            connection, address = super().get_request()
+            connection.settimeout(5)
+            return connection, address
+        def service_actions(self):
+            nonlocal last_cleanup
+            if time.monotonic() - last_cleanup >= cleanup_interval:
+                prune_expired()
+                last_cleanup = time.monotonic()
         def server_close(self):
             super().server_close()
-            with lock:db.close()
+            with lock:
+                if not getattr(self, 'database_closed', False):
+                    db.close()
+                    self.database_closed = True
     server=ReportServer((host,port),Handler)
-    server.daemon_threads=True
     return server
 
 
 if __name__=='__main__':
     server=make_server(host=os.environ.get('REPORT_BIND','127.0.0.1'),port=int(os.environ.get('PORT','8080')))
     print('Reporting API started. No desktop monitoring is performed.',flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()

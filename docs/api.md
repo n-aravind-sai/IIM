@@ -39,7 +39,7 @@ This runs separately from the desktop worker. It is a **single-tenant reference 
 
 Errors: `400` invalid payload/consent/audit, `401` wrong credential or insufficient role, `404` unknown/expired report, `429` credential rate limit. Maximum POST size is 8 MB; credential limit is 120 requests/minute. No cross-origin browser API is enabled.
 
-Retention is 24 hours. Expired records are inaccessible and pruned on the next API operation. Configure periodic cleanup, encrypted backups and deletion propagation before production. TLS termination, OIDC, role lifecycle, tenant isolation, load limits and operational audit trails are deployment responsibilities, not implemented SaaS features.
+Retention is 24 hours. Every read enforces the expiry timestamp. Expired rows are deleted at startup and at most 60 seconds after expiry while the server loop is running, plus its normal polling/scheduling delay (0.5 seconds by default), without requiring traffic. While stopped, rows remain until the next startup. SQLite secure deletion does not erase exported copies, filesystem snapshots or backups; configure backup retention and deletion propagation separately. TLS termination, OIDC, role lifecycle, tenant isolation, load limits and operational audit trails are deployment responsibilities, not implemented SaaS features.
 
 ### Future live interviewer relay
 
