@@ -2,7 +2,7 @@
 
 ## Data contract
 
-Only consented metadata and voluntary context enter the session log. The code does not log keys, collect passwords, read browser history, inspect arbitrary documents, capture desktop images, inject code or alter other applications. The session camera runs only with the camera scope selected under disclosure `iim-consent-2`. Its subprocess returns eye-position consistency, quality and calibration statistics, lighting, face count and multiple-face observations; no frames or identity recognition. A separate candidate-triggered pre-flight preview opens camera and microphone in the browser, displays video and microphone level locally, and saves or sends none of that preview data. Closing the check, stopping the session or leaving the page releases its devices. Synthetic demo is hardware-free.
+Only consented metadata and voluntary context enter the session log. The code does not log keys, collect passwords, read browser history, inspect arbitrary documents, capture desktop images, inject code or alter other applications. The session camera runs only with the camera scope selected under disclosure `iim-consent-3`. Its subprocess returns eye-position consistency, quality and calibration statistics, lighting, face count and multiple-face observations; no frames or identity recognition. A separate candidate-triggered pre-flight preview opens camera and microphone in the browser, displays video and microphone level locally, and saves or sends none of that preview data. Closing the check, stopping the session or leaving the page releases its devices. Synthetic demo is hardware-free.
 
 No activity detector starts at login or app startup. Stop remains visible across screens. Worker disconnect and heartbeat expiry end collection. A crash can interrupt cleanup or audit writes; restart records interruption instead of claiming a complete session. Native calls and OS shutdown behavior still require target-device failure tests.
 
@@ -48,3 +48,5 @@ The consent UI is a product permission mechanism, **not proof of a valid legal b
 ## Release gates
 
 Before a real interview deployment: native platform tests; camera/permissions and stop behavior; validated error rates; accessibility review; Tauri IPC/navigation audit; dependency and supply-chain review; signed/notarized distribution; protected signing keys; external checkpoint receipt if required; operational retention and identity design; and legal review of the actual deployment. None of these may be replaced by the dashboard's numeric index.
+
+Optional dashboard focus timing (v3 consent) records departure/restoration and worker-observed intervals only, without destinations or content. Session rules, detector coverage transitions and sampled device-count changes are retained in the audit timeline. See [scenario enhancements](audits/Scenario-Enhancements.md) for scope and limitations.

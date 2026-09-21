@@ -30,7 +30,7 @@ python -m pip install -r requirements-native.txt
 python scripts/dev.py
 ```
 
-Open `http://127.0.0.1:1420` in your browser. Select **Start a session**, choose the monitoring scopes, accept the disclosure, then start. No session detector runs before acceptance. The separate **Preview camera & microphone** action opens local camera/microphone streams without recording or saving them; synthetic demo never opens devices. Camera consent (`iim-consent-2`) covers eye-position consistency, quality/calibration statistics, lighting, face count and multiple-face observations, all excluded from the index. Optional camera calibration needs at least 50 stable valid samples, approximately 10 seconds at the configured 5 FPS, and can take longer or fail.
+Open `http://127.0.0.1:1420` in your browser. Select **Start a session**, choose the monitoring scopes, accept the disclosure, then start. No session detector runs before acceptance. The separate **Preview camera & microphone** action opens local camera/microphone streams without recording or saving them; synthetic demo never opens devices. Camera consent (`iim-consent-3`) covers eye-position consistency, quality/calibration statistics, lighting, face count and multiple-face observations, all excluded from the index. Optional camera calibration needs at least 50 stable valid samples, approximately 10 seconds at the configured 5 FPS, and can take longer or fail.
 
 If optional native packages are unavailable, install `requirements.txt`. Core sessions, exports, audit verification and development process enumeration remain usable; unavailable detectors are labelled explicitly.
 
@@ -155,3 +155,5 @@ The browser script uses synthetic observations and a development process-only se
 | `output/` | Synthetic example PDF and audit fixture; no candidate data |
 
 Start with [architecture](docs/architecture.md), [API design](docs/api.md), [security](docs/security.md) and [deployment](docs/deployment.md).
+
+Optional dashboard focus timing (v3 consent) records departure/restoration and worker-observed intervals only, without destinations or content. Session rules, detector coverage transitions and sampled device-count changes are retained in the audit timeline. See [scenario enhancements](docs/audits/Scenario-Enhancements.md) for scope and limitations.

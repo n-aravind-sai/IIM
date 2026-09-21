@@ -28,11 +28,13 @@ class Service:
         if op == "snapshot":
             return self.engine.snapshot()
         if op == "start":
-            return await asyncio.to_thread(self.engine.start, args.get("consent"))
+            return await asyncio.to_thread(self.engine.start, args.get("consent"), args.get("policy"))
         if op == "stop":
             return await asyncio.to_thread(self.engine.stop)
         if op == "heartbeat":
             return self.engine.heartbeat()
+        if op == "focus":
+            return await asyncio.to_thread(self.engine.focus_event, args.get("session_id"), args.get("sequence"), args.get("away"))
         if op == "note":
             return await asyncio.to_thread(self.engine.note, args.get("text"))
         if op == "mark":

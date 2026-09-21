@@ -11,7 +11,7 @@ Requests have `{"id":"client-request-id","op":"start","args":{...}}`. IDs are st
 | Operation | Arguments | Result / rule |
 |---|---|---|
 | `snapshot` | `{}` | Latest state; before consent contains no observations |
-| `start` | `{consent:{accepted:true,version:"iim-consent-2",processes:true,windows:true,displays:true,audio_devices:false,extensions:false,gaze:false}}` | Starts a fresh session; at least one selected scope |
+| `start` | `{consent:{accepted:true,version:"iim-consent-3",processes:true,windows:true,displays:true,audio_devices:false,extensions:false,gaze:false}}` | Starts a fresh session; at least one selected scope |
 | `heartbeat` | `{}` | Extends active controller lease; UI sends every 4 seconds |
 | `stop` | `{}` | Closes optional camera, saves final state, ends session |
 | `note` | `{text:"..."}` | Active session only, 1-500 characters; stored and escaped in UI/PDF |
@@ -44,3 +44,28 @@ Retention is 24 hours. Every read enforces the expiry timestamp. Expired rows ar
 ### Future live interviewer relay
 
 Use separate candidate and interviewer identities, short-lived pairing invitations, explicit candidate approval, read-only interviewer tokens, revocation and server-attested receipt times. Transmit only minimized observations, capability states and candidate context. Preserve connectivity gaps in reports. Do not expose the current loopback worker or reuse its capability token on a public network. No live relay is implemented or deployed here.
+
+### Session rules and focus events (disclosure v3)
+
+New sessions require `iim-consent-3`; earlier consent versions cannot authorize
+new sessions. `start` additionally accepts `policy`:
+`{allowed_apps:["obs64"],max_displays:2,phase:"discussion"}`.
+Defaults are no permitted-name exceptions, no display limit and discussion.
+Names are exact executable-name matches (case-insensitive, optional .exe), at most
+30 names of 80 characters, no paths. Phase accepts discussion, independent or
+open_book; it is recorded context only. Rules are candidate-reviewed, not
+authenticated interviewer approval. Restart with fresh consent to change rules.
+Permitted process observations stay visible with zero weight. Display-limit
+observations are unscored because platform inventories can represent adapters.
+
+Optional `consent.focus_events:true` authorizes
+`focus {session_id,sequence,away}`. Sequence is an increasing integer within the
+session; older/duplicate messages are ignored. Worker receipt times measure
+intervals; no destination, title, clipboard, key or content is captured. Client
+reports are self-reported, may be delayed and are never scored. Stop closes an
+unfinished interval without claiming that focus returned.
+
+Coverage status changes, recovery durations and sampled audio/display count
+changes enter the signed timeline and PDF. Counts cannot identify device
+replacement with unchanged counts. Browser imports report the import timestamp
+and elapsed time since import, not the age or authenticity of the original export.

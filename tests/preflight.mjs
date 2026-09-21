@@ -9,7 +9,7 @@ function fixture(demo=false){
  function element(id){if(!elements.has(id))elements.set(id,{open:false,style:{},parentElement:{setAttribute(){}},classList:{toggle(){}},listeners:{},addEventListener(t,f){this.listeners[t]=f;},showModal(){this.open=true;},close(){this.open=false;},srcObject:null});return elements.get(id);}
  const window={listeners:{},addEventListener(t,f){this.listeners[t]=f;},AudioContext:class{createMediaStreamSource(){return {connect(){}};}createAnalyser(){return {frequencyBinCount:8,getByteFrequencyData(){}};}close(){closedAudio++;return Promise.resolve();}}};
  const mediaDevices={getUserMedia(){requests++;return new Promise((resolve,reject)=>pending.push({resolve,reject}));},enumerateDevices:async()=>[]};
- const context=vm.createContext({window,document:{querySelector:element,querySelectorAll:()=>[]},location:{search:demo?'?demo=1':''},URLSearchParams,navigator:{mediaDevices},setTimeout:()=>1,clearTimeout(){},requestAnimationFrame(f){frames.set(frames.size+1,f);return frames.size;},cancelAnimationFrame(id){frames.delete(id);}});
+ const context=vm.createContext({window,document:{addEventListener(){},querySelector:element,querySelectorAll:()=>[]},location:{search:demo?'?demo=1':''},URLSearchParams,navigator:{mediaDevices},setTimeout:()=>1,clearTimeout(){},requestAnimationFrame(f){frames.set(frames.size+1,f);return frames.size;},cancelAnimationFrame(id){frames.delete(id);}});
  vm.runInContext(source,context);vm.runInContext('client={call:async()=>({})}',context);
  return {context,element,pending,frames,window,mediaDevices,get requests(){return requests;},get closedAudio(){return closedAudio;},start:()=>vm.runInContext('startPreflight()',context),stop:()=>vm.runInContext('stopPreflight()',context)};
 }
@@ -27,3 +27,22 @@ for(const event of ['pagehide','beforeunload'])test(`${event} cancels pending an
 test('session stop releases devices even with failed worker RPC',async()=>{const f=fixture(),p=f.start(),s=stream();f.pending[0].resolve(s);await p;vm.runInContext('client={call:async()=>{throw Error("offline")}}',f.context);await f.element('#stop').listeners.click();stopped(s);assert.equal(f.element('#preflight-dialog').open,false);});
 test('native dialog close releases active devices',async()=>{const f=fixture(),p=f.start(),s=stream();f.pending[0].resolve(s);await p;const d=f.element('#preflight-dialog');d.open=false;d.listeners.close();stopped(s);});
 test('demo never requests hardware',async()=>{const f=fixture(true);await f.start();assert.equal(f.requests,0);});
+test('focus events require consent and never run in demo',async()=>{
+ for(const demo of [false,true]){
+  const f=fixture(demo);
+  vm.runInContext("connected=true;snapshot={active:true,session_id:'session',consent:{focus_events:false}};document.hasFocus=()=>false;calls=[];client={call:async(op,args)=>{calls.push({op,args});return {};}}",f.context);
+  f.window.listeners.blur();assert.equal(vm.runInContext('calls.length',f.context),0);
+  vm.runInContext('snapshot.consent.focus_events=true',f.context);f.window.listeners.blur();
+  assert.equal(vm.runInContext('calls.length',f.context),demo?0:1);
+ }
+});
+test('blur and visibility changes coalesce; restoration sends a later sequence',()=>{
+ const f=fixture();
+ vm.runInContext("connected=true;snapshot={active:true,session_id:'session',consent:{focus_events:true}};document.hasFocus=()=>false;calls=[];client={call:async(op,args)=>{calls.push({op,args});return {};}}",f.context);
+ f.window.listeners.blur();vm.runInContext("document.visibilityState='hidden';reportFocus()",f.context);
+ assert.equal(vm.runInContext('calls.length',f.context),1);
+ vm.runInContext("document.visibilityState='visible';document.hasFocus=()=>true",f.context);f.window.listeners.focus();
+ assert.equal(vm.runInContext('calls.length',f.context),2);
+ assert.equal(vm.runInContext('calls[1].args.away',f.context),false);
+ assert.equal(vm.runInContext('calls[1].args.sequence',f.context),2);
+});

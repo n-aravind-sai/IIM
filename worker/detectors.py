@@ -119,12 +119,13 @@ class AudioCaptureDetector(Detector):
         signals = []
         for d in devices:
             if any(word in d["name"].casefold() for word in
-                   ("blackhole", "soundflower", "loopback", "cable output", "stereo mix")):
+                   ("blackhole", "soundflower", "loopback", "cable output", "vb-audio", "voicemeeter", "obs virtual audio", "krisp", "steelseries sonar")):
                 signals.append(signal(self.name, "routing_device", "Audio routing device available",
                     .7, .2, {"device": d["name"]}, "An input device name suggests loopback or routing support.",
                     "Installed does not mean active. No audio is captured; listener conflicts and STT use are unknown."))
+        hardware_loopback = sum("stereo mix" in d["name"].casefold() for d in devices)
         return Result(self.name, "partial", "Input-device inventory only. Per-app audio capture is unsupported.",
-                      signals, {"capture_conflicts": None, "audio_recorded": False})
+                      signals, {"capture_conflicts": None, "audio_recorded": False, "input_count": len(devices), "hardware_loopback_count": hardware_loopback})
 
 
 class VirtualDisplayDetector(Detector):
@@ -155,7 +156,8 @@ class BrowserExtensionDetector(Detector):
                     .5, .4, {"extension": entry["name"], "source": "candidate_import"},
                     "A candidate-supplied enabled extension name matches a broad keyword.",
                     "Inventory is self-reported, may be stale or incomplete, and covers one browser profile."))
-        return Result(self.name, "partial", "Candidate-supplied inventory; no browser profiles are read.", signals)
+        return Result(self.name, "partial", "Candidate-supplied inventory; no browser profiles are read.", signals,
+                      {"imported_at": context.get("extensions_imported_at"), "seconds_since_import": round(max(0, time.monotonic() - context.get("extensions_import_tick", time.monotonic()))), "browser_authenticated": False, "inventory_scope": "one self-reported browser profile; export age unknown"})
 
 
 def registry():

@@ -7,9 +7,10 @@ from dataclasses import asdict
 from .audit import AuditStore, now
 from .detectors import registry
 from .models import Result, score
+from .policy import validate_policy, apply_policy
 
 SCOPES = ("processes", "windows", "audio_devices", "displays", "extensions", "gaze")
-DISCLOSURE = "iim-consent-2"
+DISCLOSURE = "iim-consent-3"
 
 
 class Engine:
@@ -36,7 +37,7 @@ class Engine:
         self.last_audit = 0
         self.last_prune = 0
 
-    def start(self, consent):
+    def start(self, consent, policy=None):
         with self.lock:
             if self.active or self.stopping:
                 raise ValueError("Stop the current session first")
@@ -44,7 +45,10 @@ class Engine:
                 raise ValueError("Candidate acceptance of the current disclosure is required")
             if any(not isinstance(consent.get(s, False), bool) for s in SCOPES):
                 raise ValueError("Invalid monitoring scope")
-            consent = {"accepted": True, "version": DISCLOSURE, **{s: consent.get(s, False) for s in SCOPES}}
+            policy = validate_policy(policy)
+            if type(consent.get("focus_events", False)) is not bool:
+                raise ValueError("Invalid focus-events scope")
+            consent = {"focus_events": consent.get("focus_events", False), "policy": policy, "accepted": True, "version": DISCLOSURE, **{s: consent.get(s, False) for s in SCOPES}}
             if not any(consent[s] for s in SCOPES):
                 raise ValueError("Select at least one disclosed monitoring scope")
             self.session = str(uuid.uuid4())
@@ -54,6 +58,8 @@ class Engine:
             self.active = True
             self.last_seen = self.start_time = time.monotonic()
             self.context, self.last_scans = {}, {}
+            self.coverage_states, self.coverage_gaps, self.device_counts = {}, {}, {}
+            self.focus_seq, self.focus_away = -1, None
             self.last_audit = 0
             self.results, self.known = [], set()
             self.observed = {}
@@ -61,6 +67,7 @@ class Engine:
             self.history.clear()
             self.question_at = None
             self._event("Session started", "Candidate selected monitoring scopes.", persist=False)
+            self._event("Session rules", f"Phase: {policy['phase']}; display limit: {policy['max_displays']}; permitted executable names: {', '.join(policy['allowed_apps']) or 'none'}. Candidate-reviewed, not interviewer-authenticated.")
             return self.snapshot()
 
     def _event(self, title, detail, persist=True):
@@ -128,13 +135,35 @@ class Engine:
                 except Exception:
                     result = Result(detector.name, "error", "Probe failed or permission was denied; coverage is unknown.")
                 scanned[detector.name] = tick
-            results.append(result)
+            results.append(apply_policy(copy.deepcopy(result), consent["policy"]))
         with self.lock:
             if not self.active or self.session != session:
                 return self.snapshot()
             # An import arriving during a scan must remain due for the next poll.
             if self.context != context:
                 scanned.pop("BrowserExtensionDetector", None)
+            for result in results:
+                if not consent.get(next((d.scope for d in detectors if d.name == result.detector), "")):
+                    continue
+                count_key = {"AudioCaptureDetector": "input_count", "VirtualDisplayDetector": "active_displays"}.get(result.detector)
+                count = result.metrics.get(count_key) if count_key else None
+                if result.status in ("partial", "available") and type(count) is int:
+                    old_count = self.device_counts.get(result.detector)
+                    if old_count is not None and old_count != count:
+                        self._event("Device inventory count changed", f"{result.detector}: {old_count} → {count}. Sampled inventory only; device identity and active use are unknown.")
+                    self.device_counts[result.detector] = count
+                previous = self.coverage_states.get(result.detector)
+                if previous != result.status:
+                    usable = result.status in ("available", "partial")
+                    if not usable and result.detector not in self.coverage_gaps:
+                        self.coverage_gaps[result.detector] = time.monotonic()
+                    elapsed = None
+                    if usable and result.detector in self.coverage_gaps:
+                        elapsed = round(time.monotonic() - self.coverage_gaps.pop(result.detector), 2)
+                    self._event("Detector coverage changed",
+                        f"{result.detector}: {previous or 'not sampled'} → {result.status}. {result.detail}" +
+                        (f" Unavailable interval: {elapsed}s." if elapsed is not None else ""))
+                    self.coverage_states[result.detector] = result.status
             new = {s.id: asdict(s) for r in results for s in r.signals}
             # Persist full minimized evidence BEFORE publishing the snapshot.
             # A changed signal with the same ID also gets a new signed event.
@@ -203,6 +232,12 @@ class Engine:
                 for identity in sorted(self.known):
                     self.store.append(self.session, "signal_resolved", {
                         "signal_id": identity, "reason": "Monitoring stopped; observation tracking ended"})
+                for name, started in self.coverage_gaps.items():
+                    self._event("Coverage gap ended with monitoring", f"{name}: {round(time.monotonic() - started, 2)}s unavailable; no recovery confirmed.")
+                self.coverage_gaps.clear()
+                if self.focus_away is not None:
+                    self._event("Focus interval incomplete", f"Dashboard reported away for {round(time.monotonic() - self.focus_away, 2)}s before monitoring ended; return not observed.")
+                    self.focus_away = None
                 self.store.stop(self.session, reason)
                 self._event("Monitoring stopped", reason, persist=False)
                 self.context.clear()
@@ -215,6 +250,25 @@ class Engine:
             raise RuntimeError("Device cleanup failed; close the desktop application")
         return self.snapshot()
 
+    def focus_event(self, session_id, sequence, away):
+        with self.lock:
+            if not self.active or not self.consent.get("focus_events") or session_id != self.session:
+                raise ValueError("Active matching session and focus consent required")
+            if type(sequence) is not int or not 0 <= sequence <= 2147483647 or type(away) is not bool:
+                raise ValueError("Invalid focus event")
+            if sequence <= self.focus_seq:
+                return {"accepted": False}
+            self.focus_seq = sequence
+            tick = time.monotonic()
+            if away and self.focus_away is None:
+                self.focus_away = tick
+                self._event("Dashboard focus departed", "Client-reported visibility/focus change. Destination unknown; not scored.")
+            elif not away and self.focus_away is not None:
+                duration = round(tick - self.focus_away, 2)
+                self.focus_away = None
+                self._event("Dashboard focus restored", f"Worker-observed away interval: {duration}s. Delivery delays may affect timing; not scored.")
+            return {"accepted": True}
+
     def import_extensions(self, entries, digest=None):
         with self.lock:
             if not self.active or not self.consent.get("extensions"):
@@ -224,6 +278,8 @@ class Engine:
             detail = ("Candidate supplied an inventory with a matching content checksum; authenticity and completeness are unverified."
                       if checked else "Candidate supplied an inventory without a checksum; authenticity and completeness are unverified.")
             self.context["extensions"] = clean
+            self.context["extensions_imported_at"] = now()
+            self.context["extensions_import_tick"] = time.monotonic()
             self.last_scans.pop("BrowserExtensionDetector", None)
             self._event("Extension inventory imported", detail)
             return {"imported": len(clean), "verified": checked, "checksum_verified": checked, "browser_authenticated": False}

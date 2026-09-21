@@ -10,7 +10,9 @@ function timeLabel(value){return new Date(value).toLocaleTimeString([],{hour:'2-
 function setConnection(label,ok){connected=ok;$('#connection').textContent=label;$('#connection').className=`pill ${ok?'':'muted'}`;$('#start').disabled=!ok||Boolean(snapshot?.active);}
 
 function render(data) {
+  const previousSession=snapshot?.session_id;
   snapshot=data;
+  if(data.active&&previousSession!==data.session_id){focusSequence=0;lastFocusAway=null;queueMicrotask(reportFocus);}
   const expanded=new Set([...document.querySelectorAll('.observation details[open]')].map(el=>el.parentElement.dataset.signal));
   const signals=data.results.flatMap(r=>r.signals);
   $('#session-status').textContent=data.active?'Monitoring is visible':data.session_id?'Session ended':'Awaiting consent';
@@ -39,7 +41,7 @@ function render(data) {
   const results=data.results.length?data.results:Object.keys(labels).map(detector=>({detector,status:'disabled',detail:'Awaiting candidate consent.'}));
   $('#detectors').innerHTML=results.map(r=>`<div class="detector-row" data-detector="${escape(r.detector)}" data-status="${escape(r.status)}"><div><b>${escape(labels[r.detector]||r.detector)}</b><small>${escape(r.detail)}</small></div><span class="pill ${r.status==='partial'?'warn':r.status==='available'?'':'muted'}">${escape(r.status)}</span></div>`).join('');
   $('#timeline').innerHTML=data.timeline.length?data.timeline.map(e=>`<div class="timeline-item"><time>${escape(timeLabel(e.time))}</time><div><b>${escape(e.title)}</b><p>${escape(e.detail)}</p></div></div>`).join(''):'<div class="empty"><h3>Your timeline starts here</h3><p>Consent, observations and candidate context will appear during a session.</p></div>';
-  $('#consent-summary').innerHTML=Object.entries(scopeLabels).map(([scope,label])=>`<div class="consent-row"><b>${label}</b><span>${data.consent[scope]?'Selected':'Not selected'}</span></div>`).join('');
+  $('#consent-summary').innerHTML=Object.entries({...scopeLabels,focus_events:'Dashboard focus timing'}).map(([scope,label])=>`<div class="consent-row"><b>${label}</b><span>${data.consent[scope]?'Selected':'Not selected'}</span></div>`).join('');
   renderGaze(data);
 }
 
@@ -69,10 +71,13 @@ for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('clic
 $('#start').addEventListener('click',()=>{$('#accepted').checked=false;$('#consent-dialog').showModal();});
 $('#cancel-consent').addEventListener('click',()=>$('#consent-dialog').close());
 $('#consent-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
-  const form=new FormData(event.currentTarget);const consent={accepted:form.has('accepted'),version:'iim-consent-2'};
+  const form=new FormData(event.currentTarget);const consent={accepted:form.has('accepted'),version:'iim-consent-3'};
   for(const key of Object.keys(scopeLabels))consent[key]=form.has(key);
   if(!Object.keys(scopeLabels).some(key=>consent[key]))throw Error('Select at least one monitoring scope.');
-  await rpc('start',{consent});$('#consent-dialog').close();toast(demo?'Synthetic demo started. No monitoring is taking place.':'Selected monitoring checks started.');
+  consent.focus_events=form.has('focus_events');
+  const maxDisplays=form.get('max_displays');
+  const policy={allowed_apps:String(form.get('allowed_apps')||'').split(',').map(x=>x.trim()).filter(Boolean),max_displays:maxDisplays?Number(maxDisplays):null,phase:form.get('phase')||'discussion'};
+  const started=await rpc('start',{consent,policy});render(started);$('#consent-dialog').close();toast(demo?'Synthetic demo started. No monitoring is taking place.':'Selected monitoring checks started.');
 });});
 $('#stop').addEventListener('click',()=>action(async()=>{stopPreflight();await rpc('stop');toast('Monitoring stopped. Your session summary is ready.');}));
 $('#save-note').addEventListener('click',()=>action(async()=>{const text=$('#context-note').value.trim();if(!text)throw Error('Enter a note first.');await rpc('note',{text});$('#context-note').value='';toast('Candidate context added to the timeline.');}));
@@ -173,6 +178,20 @@ $('#preflight-dialog')?.addEventListener('close',()=>{if(!$('#preflight-dialog')
 window.addEventListener('pagehide',stopPreflight);
 window.addEventListener('beforeunload',stopPreflight);
 
+let focusSequence=0,lastFocusAway=null;
+function reportFocus(){
+  if(demo||!snapshot?.active||!snapshot.consent.focus_events||!connected)return;
+  const away=document.visibilityState==='hidden'||!document.hasFocus();
+  if(away===lastFocusAway)return;
+  lastFocusAway=away;
+  const session_id=snapshot.session_id,sequence=++focusSequence;
+  rpc('focus',{session_id,sequence,away}).catch(()=>{
+    if(snapshot?.session_id===session_id&&focusSequence===sequence)lastFocusAway=null;
+  });
+}
+window.addEventListener('blur',reportFocus);
+window.addEventListener('focus',reportFocus);
+document.addEventListener('visibilitychange',reportFocus);
 let reconnectTimer=null,reconnectAttempts=0;
 async function fetchBootstrap(){
   if(window.__TAURI__)return await window.__TAURI__.core.invoke('bootstrap');
@@ -199,7 +218,7 @@ async function connect(){
   ws.addEventListener('open',()=>{reconnectAttempts=0;ws.send(JSON.stringify({token:info.token}));});
   ws.addEventListener('message',event=>{
     const msg=JSON.parse(event.data);
-    if(msg.type==='ready'){setConnection('Local worker connected',true);render(msg.snapshot);heartbeat=setInterval(()=>rpc('heartbeat').catch(()=>{}),4000);}
+    if(msg.type==='ready'){setConnection('Local worker connected',true);render(msg.snapshot);heartbeat=setInterval(()=>{rpc('heartbeat').catch(()=>{});reportFocus();},4000);}
     if(msg.type==='snapshot')render(msg.snapshot);
     if(msg.type==='response'){const p=pending.get(msg.id);if(p){clearTimeout(p.timeout);pending.delete(msg.id);msg.error?p.reject(Error(msg.error)):p.resolve(msg.result);}}
     if(msg.type==='fatal')toast(msg.error,true);
