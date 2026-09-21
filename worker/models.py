@@ -21,7 +21,7 @@ class Signal:
 @dataclass
 class Result:
     detector: str
-    status: str  # available | partial | unsupported | disabled | error
+    status: str  # available | partial | waiting | unsupported | disabled | error
     detail: str
     signals: list[Signal] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)

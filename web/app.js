@@ -50,7 +50,7 @@ function renderGaze(data){
   for(const p of points){if(p)segment.push(p);else if(segment.length){segments.push(segment);segment=[];}}if(segment.length)segments.push(segment);
   $('#gaze-chart').innerHTML=[20,80,140].map(y=>`<line x1="12" x2="588" y1="${y}" y2="${y}" stroke="#25333f" stroke-dasharray="4 5"/>`).join('')+segments.map(s=>`<polyline points="${s.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#68dbc1" stroke-width="2"/>`).join('');
   $('#gaze-empty').hidden=segments.some(s=>s.length>1);
-  $('#gaze-badge').textContent=!data.consent.gaze?'Off':r?.status==='error'?'Unavailable':r?.metrics?.calibrated?'Experimental':'Calibrating';
+  $('#gaze-badge').textContent=!data.consent.gaze?'Off':r?.status==='error'?'Unavailable':r?.status==='waiting'?'Starting':r?.metrics?.calibrated?'Experimental':'Calibrating';
   if(data.consent.gaze&&!$('#gaze-empty').hidden)$('#gaze-empty').innerHTML=r?.status==='error'?'Camera unavailable. You can continue without it.':'Waiting for reliable samples.<br><small>Look comfortably at your screen; calibration needs 50 stable samples.</small>';
   if(!data.consent.gaze)$('#gaze-empty').innerHTML='Enable optional camera analysis at session start.<br><small>No camera images are stored or shared.</small>';
 }

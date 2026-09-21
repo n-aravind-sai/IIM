@@ -113,17 +113,20 @@ class GazeDetector:
     name, scope = "GazeDetector", "gaze"
 
     def __init__(self):
-        self.lifecycle = threading.Lock()
+        self.lifecycle = threading.RLock()
         self.closed = False
         self.process = None
         self.pipe = None
         self.latest = {"consistency": None, "quality": "calibrating", "calibrated": False}
-        self.last_update = 0
+        self.last_update = None
+        self.started_at = None
+        self.failure = None
 
     def scan(self, context):
         with self.lifecycle:
             if self.closed:
-                return Result(self.name, "disabled", "Camera monitoring stopped.")
+                return Result(self.name, "error" if self.failure else "disabled",
+                              self.failure or "Camera monitoring stopped.")
             return self._scan(context)
 
     def _scan(self, context):
@@ -131,8 +134,16 @@ class GazeDetector:
             parent, child = mp.get_context("spawn").Pipe()
             self.pipe = parent
             self.process = mp.get_context("spawn").Process(target=camera_loop, args=(child,), daemon=True)
-            self.process.start()
-            child.close()
+            self.started_at = time.monotonic()
+            try:
+                self.process.start()
+            except Exception:
+                self.process = None
+                parent.close()
+                self.pipe = None
+                return self._fail("Camera process could not start. Start a new session to retry.")
+            finally:
+                child.close()
         if self.pipe:
             try:
                 for _ in range(10):
@@ -140,12 +151,16 @@ class GazeDetector:
                         break
                     self.latest = self.pipe.recv()
                     self.last_update = time.monotonic()
-            except EOFError:
-                pass
+            except (EOFError, OSError):
+                return self._fail("Camera connection closed. Start a new session to retry.")
         if "error" in self.latest or not self.process.is_alive():
-            return Result(self.name, "error", self.latest.get("error", "Camera worker stopped."))
-        if self.last_update and time.monotonic() - self.last_update > 3:
-            return Result(self.name, "error", "Camera measurements are stale.")
+            return self._fail(self.latest.get("error", "Camera worker stopped. Start a new session to retry."))
+        if self.last_update is None:
+            if self.started_at is not None and time.monotonic() - self.started_at >= 10:
+                return self._fail("Camera returned no measurements within 10 seconds. Start a new session to retry.")
+            return Result(self.name, "waiting", "Waiting for the first camera measurement; coverage is unknown.")
+        if time.monotonic() - self.last_update > 3:
+            return self._fail("Camera measurements are stale. Start a new session to retry.")
         signals = []
         if self.latest.get("secondary_person"):
             from .detectors import signal
@@ -158,6 +173,11 @@ class GazeDetector:
         return Result(self.name, "partial", "Experimental eye-position consistency; excluded from score.",
                       signals=signals, metrics=self.latest.copy())
 
+
+    def _fail(self, detail):
+        self.failure = detail
+        self.close()
+        return Result(self.name, "error", detail)
 
     def close(self):
         with self.lifecycle:
