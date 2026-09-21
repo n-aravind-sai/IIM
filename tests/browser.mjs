@@ -35,10 +35,11 @@ try{
   await page.goto('http://127.0.0.1:1420/');
   await page.waitForFunction(()=>document.querySelector('#connection').textContent==='Local worker connected');
   await page.locator('#start').click();
-  await page.locator('input[name=windows]').uncheck();await page.locator('input[name=displays]').uncheck();
+  for(const scope of ['windows','displays','gaze','audio_devices','extensions'])await page.locator(`input[name=${scope}]`).uncheck();
+  await page.locator('input[name=processes]').check();
   await page.locator('#accepted').check();await page.getByRole('button',{name:'Start selected checks'}).click();
   await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Monitoring is visible');
-  await page.waitForFunction(()=>document.querySelector('#detectors').textContent.includes('Executable names only'));
+  await page.locator('[data-detector="ProcessDetector"][data-status="partial"]').waitFor({state:'visible'});
   await page.locator('#stop').click();
   await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Session ended');
   const pdfWait=page.waitForEvent('download');await page.locator('#export-pdf').click();const pdf=await pdfWait;
