@@ -2,6 +2,8 @@
 
 Privacy-first desktop **developer prototype** for Windows and macOS. It collects disclosed technical metadata, displays reviewable observations, and produces a signed audit export and a readable PDF. It does not determine whether someone is cheating.
 
+**Latest code audit:** [Remaining fixes and verification](docs/audits/Remaining-Fixes-Report.md).
+
 **Release status:** runnable Python worker and browser development UI; Tauri/Rust desktop source is provided but has not been compiled on this environment. This is not a signed, standalone installer or a production-validated detector. Native Windows/macOS probes, camera accuracy, installer behavior and real interview performance require target-device validation. The advanced detection limits below are intentional and visible in the product.
 
 ## Quick start

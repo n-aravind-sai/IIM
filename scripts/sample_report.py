@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from worker.audit import AuditStore, now
+from worker.engine import DISCLOSURE
 from worker.models import Result, score
 from worker.detectors import signal
 from worker.report import render_report
@@ -13,7 +14,7 @@ output=Path(__file__).resolve().parent.parent/'output';output.mkdir(exist_ok=Tru
 with tempfile.TemporaryDirectory() as directory:
     store=AuditStore(directory)
     identity='synthetic-sample-not-a-real-interview'
-    store.create(identity,{'accepted':True,'version':'iim-consent-1','synthetic':True,'processes':True,'windows':True,'displays':True,'gaze':False,'audio_devices':False,'extensions':False})
+    store.create(identity,{'accepted':True,'version':DISCLOSURE,'synthetic':True,'processes':True,'windows':True,'displays':True,'gaze':False,'audio_devices':False,'extensions':False})
     observation=signal('OverlayDetector','sample','Overlay-style window observed',.8,.5,
         {'topmost':True,'layered':True,'source':'synthetic fixture'},
         'A synthetic window combines elevated stacking with overlay-like attributes.',

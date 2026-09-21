@@ -1,5 +1,7 @@
 # Interview Integrity Monitor — High-priority fixes and audit
 
+> Historical checkpoint. The project was subsequently published to `n-aravind-sai/IIM`. See [remaining fixes](Remaining-Fixes-Report.md) for current status.
+
 ## Result
 
 All three high-priority findings were fixed sequentially, audited separately and committed locally. The complete regression run passed **69 Python tests and 10 JavaScript lifecycle tests**. The static desktop UI build also passed.
