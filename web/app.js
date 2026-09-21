@@ -69,7 +69,7 @@ for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('clic
 $('#start').addEventListener('click',()=>{$('#accepted').checked=false;$('#consent-dialog').showModal();});
 $('#cancel-consent').addEventListener('click',()=>$('#consent-dialog').close());
 $('#consent-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
-  const form=new FormData(event.currentTarget);const consent={accepted:form.has('accepted'),version:'iim-consent-1'};
+  const form=new FormData(event.currentTarget);const consent={accepted:form.has('accepted'),version:'iim-consent-2'};
   for(const key of Object.keys(scopeLabels))consent[key]=form.has(key);
   if(!Object.keys(scopeLabels).some(key=>consent[key]))throw Error('Select at least one monitoring scope.');
   await rpc('start',{consent});$('#consent-dialog').close();toast(demo?'Synthetic demo started. No monitoring is taking place.':'Selected monitoring checks started.');

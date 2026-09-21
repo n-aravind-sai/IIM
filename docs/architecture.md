@@ -81,7 +81,7 @@ Coverage is a separate display across five technical detectors: full visibility 
 
 ## Persistence and resource envelope
 
-SQLite stores consent, matching evidence, capability samples and voluntary notes. Full process lists, PIDs, window handles, camera frames and all audio stay out of persistent storage. Sessions expire 24 hours after creation; idle app pruning runs at most once a minute or on next startup. Exported files and external backups require separate retention.
+SQLite stores consent, matching evidence, capability samples and voluntary notes. Full process lists, PIDs, window handles, camera frames and all audio stay out of persistent storage. Camera metadata includes eye-position consistency, sample quality, calibration counts/status, lighting, face count and multiple-face observations, as disclosed by `iim-consent-2`. The browser pre-flight camera/microphone preview is separate, optional and never retained. Sessions expire 24 hours after creation; idle app pruning runs at most once a minute or on next startup. Exported files and external backups require separate retention.
 
 Signing is Ed25519 over a stored manifest containing session metadata, count and chain head. Event hashes bind the session ID, sequence, previous hash and exact payload string. Append validates the preceding checkpoint; export does not re-sign modified database content. A preserved external checkpoint is needed to detect wholesale rollback of an old valid database copy.
 

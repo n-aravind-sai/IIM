@@ -9,7 +9,7 @@ from .detectors import registry
 from .models import Result, score
 
 SCOPES = ("processes", "windows", "audio_devices", "displays", "extensions", "gaze")
-DISCLOSURE = "iim-consent-1"
+DISCLOSURE = "iim-consent-2"
 
 
 class Engine:

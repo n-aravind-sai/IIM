@@ -11,7 +11,7 @@ Requests have `{"id":"client-request-id","op":"start","args":{...}}`. IDs are st
 | Operation | Arguments | Result / rule |
 |---|---|---|
 | `snapshot` | `{}` | Latest state; before consent contains no observations |
-| `start` | `{consent:{accepted:true,version:"iim-consent-1",processes:true,windows:true,displays:true,audio_devices:false,extensions:false,gaze:false}}` | Starts a fresh session; at least one selected scope |
+| `start` | `{consent:{accepted:true,version:"iim-consent-2",processes:true,windows:true,displays:true,audio_devices:false,extensions:false,gaze:false}}` | Starts a fresh session; at least one selected scope |
 | `heartbeat` | `{}` | Extends active controller lease; UI sends every 4 seconds |
 | `stop` | `{}` | Closes optional camera, saves final state, ends session |
 | `note` | `{text:"..."}` | Active session only, 1-500 characters; stored and escaped in UI/PDF |

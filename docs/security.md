@@ -2,7 +2,7 @@
 
 ## Data contract
 
-Only consented metadata and voluntary context enter the session log. The code does not log keys, collect passwords, read browser history, inspect arbitrary documents, capture desktop images, open audio streams, inject code or alter other applications. The optional camera exists in a separate subprocess and sends only aggregate metrics to the worker. No camera permission is requested by the app before the camera scope is selected.
+Only consented metadata and voluntary context enter the session log. The code does not log keys, collect passwords, read browser history, inspect arbitrary documents, capture desktop images, inject code or alter other applications. The session camera runs only with the camera scope selected under disclosure `iim-consent-2`. Its subprocess returns eye-position consistency, quality and calibration statistics, lighting, face count and multiple-face observations; no frames or identity recognition. A separate candidate-triggered pre-flight preview opens camera and microphone in the browser, displays video and microphone level locally, and saves or sends none of that preview data. Closing the check, stopping the session or leaving the page releases its devices. Synthetic demo is hardware-free.
 
 No activity detector starts at login or app startup. Stop remains visible across screens. Worker disconnect and heartbeat expiry end collection. A crash can interrupt cleanup or audit writes; restart records interruption instead of claiming a complete session. Native calls and OS shutdown behavior still require target-device failure tests.
 

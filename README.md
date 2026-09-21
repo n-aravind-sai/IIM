@@ -28,7 +28,7 @@ python -m pip install -r requirements-native.txt
 python scripts/dev.py
 ```
 
-Open `http://127.0.0.1:1420` in your browser. Select **Start a session**, choose the monitoring scopes, accept the disclosure, then start. No detector runs before acceptance. Optional camera calibration needs at least 50 stable valid samples, approximately 10 seconds at the configured 5 FPS, and can take longer or fail.
+Open `http://127.0.0.1:1420` in your browser. Select **Start a session**, choose the monitoring scopes, accept the disclosure, then start. No session detector runs before acceptance. The separate **Preview camera & microphone** action opens local camera/microphone streams without recording or saving them; synthetic demo never opens devices. Camera consent (`iim-consent-2`) covers eye-position consistency, quality/calibration statistics, lighting, face count and multiple-face observations, all excluded from the index. Optional camera calibration needs at least 50 stable valid samples, approximately 10 seconds at the configured 5 FPS, and can take longer or fail.
 
 If optional native packages are unavailable, install `requirements.txt`. Core sessions, exports, audit verification and development process enumeration remain usable; unavailable detectors are labelled explicitly.
 
@@ -100,7 +100,7 @@ Stop the separate browser-development launcher before starting desktop developme
 | Rapid overlay changes | Changed membership across 2-second samples | Shorter-lived changes can be missed |
 | Hidden GPU overlays / compositor tampering | Explicitly unsupported | No hooks, injection, drivers or renderer introspection |
 | Suspicious processes | Configurable exact executable-name matches | Rename/spoofing, browser-based tools and actual use cannot be established |
-| Audio conflicts / multiple listeners / STT | Device-name inventory and process-name hints only | **No actual listener attribution or conflict detection**; no audio is opened |
+| Audio conflicts / multiple listeners / STT | Device-name inventory and process-name hints only | **No actual listener attribution or conflict detection**; the inventory detector opens no audio; optional pre-flight microphone preview is local and never recorded |
 | Virtual / hidden displays | Active-adapter metadata; limited Windows name/flag hints | No reliable hidden-hardware detection; macOS virtual attribution unknown |
 | Browser extensions | Candidate-reviewed companion export/import | One profile; self-reported; no assertion of freshness or completeness |
 | Gaze / eye drift | Experimental calibrated horizontal eye-position consistency | Not robust gaze direction, attention, reading, emotion or intent detection |
