@@ -4,7 +4,7 @@ Reviewed: 21 September 2026. Repository: `n-aravind-sai/IIM`, branch `audit/reme
 
 ## Outcome
 
-All remaining findings have code changes and individual audit records. F08's full Chromium flow passed in GitHub Actions run 35586661249. Native CI exposed test portability issues, corrected below; the rerun is pending. These changes do not constitute approval for real-interview use.
+All remaining findings have code changes and individual audit records. F08's full Chromium flow passed in GitHub Actions run 35586661249. Native CI exposed test portability issues, corrected below; the rerun passed on Windows and macOS. These changes do not constitute approval for real-interview use.
 
 | Finding | Change | Focused verification |
 |---|---|---|
@@ -37,8 +37,14 @@ Local environment: Linux, Python 3.12.14, websockets 16.0, cryptography 46.0.0, 
 - Cloud rows expire after 24 hours and are swept within the 60-second maintenance interval plus normal server-loop delay while running. Stopped servers clean at next startup. Backups, exports and filesystem snapshots require independent retention.
 - Bundled sample artifacts and the baseline audit are historical examples. Generate a current synthetic report with `python scripts/sample_report.py`; never use an old example as proof of current validation.
 
-Still outstanding: native CI rerun confirmation, Windows/macOS native permissions and physical-device release, desktop compilation/installer verification, dependency/supply-chain review and separately measured detection accuracy. This audit cannot establish legal compliance or suitability for hiring decisions.
+Still outstanding: Windows/macOS native permissions and physical-device release, installer verification, dependency/supply-chain review and separately measured detection accuracy. This audit cannot establish legal compliance or suitability for hiring decisions.
 
 ## Native CI follow-up
 
-Run 35586661249 found Windows-only test defects: source files and Node output were decoded with the system code page, and test SQLite connections were committed but not closed. Tests now explicitly use UTF-8 and close connections after each helper operation. No assertions were removed. Matrix fail-fast is disabled so one platform cannot cancel the other platform’s verification. macOS passed Python tests, manifest verification, JavaScript lifecycle tests and the UI build before its Rust check was cancelled by the Windows failure. A fresh run will verify both platforms completely.
+Run 35586661249 found Windows-only test defects: source files and Node output were decoded with the system code page, and test SQLite connections were committed but not closed. Tests now explicitly use UTF-8 and close connections after each helper operation. No assertions were removed. Matrix fail-fast is disabled so one platform cannot cancel the other platform’s verification. macOS passed Python tests, manifest verification, JavaScript lifecycle tests and the UI build before its Rust check was cancelled by the Windows failure. The fresh run passed both native source-check jobs and the Chromium job.
+
+## Verified published revision
+
+[GitHub Actions run 35587169271](https://github.com/n-aravind-sai/IIM/actions/runs/35587169271) passed all three jobs for commit `fc874cfd87d8d9530db40764582b5ee8e22a9911`: Windows source verification, macOS source verification and Linux/Chromium. Both native jobs passed the Python suite (Windows: all 94 passed; macOS: 93 passed, one Poppler-dependent extraction test skipped), all 10 JavaScript lifecycle tests, source checksums, UI build and Rust `cargo check`. The PDF extraction test also passed in the local 94-test run. Python requirements were installed at their pinned versions in CI.
+
+This final documentation update changes the audit and its source-manifest hashes only; the executable source is identical to the verified revision. Compilation does not verify installers, OS permissions, camera hardware or detection accuracy.
