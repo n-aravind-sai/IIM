@@ -79,7 +79,7 @@ $('#save-note').addEventListener('click',()=>action(async()=>{const text=$('#con
 $('#question').addEventListener('click',()=>action(()=>rpc('mark',{kind:'question_end'})));
 $('#answer').addEventListener('click',()=>action(()=>rpc('mark',{kind:'answer_start'})));
 $('#delete').addEventListener('click',()=>action(async()=>{if(confirm('Delete this session’s locally stored observations, consent and notes? Exported files are not deleted.')){await rpc('delete');toast('Session deleted from the app.');}}));
-$('#extension-file').addEventListener('change',event=>action(async()=>{const file=event.target.files[0];if(!file)return;if(file.size>60000)throw Error('Inventory file is too large (maximum 60 KB).');const data=JSON.parse(await file.text());await rpc('extensions',{entries:data.extensions??data,digest:data.digest});event.target.value='';toast('Candidate-supplied inventory imported.');}));
+$('#extension-file').addEventListener('change',event=>action(async()=>{const file=event.target.files[0];if(!file)return;if(file.size>60000)throw Error('Inventory file is too large (maximum 60 KB).');const data=JSON.parse(await file.text());await rpc('extensions',{entries:data});event.target.value='';toast('Candidate-supplied inventory imported.');}));
 async function saveFile(bytes,name,type){
   if(window.__TAURI__&&!demo){const path=await window.__TAURI__.core.invoke('save_export',{name,bytes:Array.from(bytes)});toast(`Saved to ${path}`);return;}
   const url=URL.createObjectURL(new Blob([bytes],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);

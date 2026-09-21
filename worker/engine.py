@@ -219,31 +219,14 @@ class Engine:
         with self.lock:
             if not self.active or not self.consent.get("extensions"):
                 raise ValueError("Active session and extension-inventory consent are required")
-            if isinstance(entries, dict):
-                digest = entries.get("digest", digest)
-                entries = entries.get("extensions")
-            if not isinstance(entries, list) or len(entries) > 250:
-                raise ValueError("Expected up to 250 extension entries")
-            clean = []
-            for row in entries:
-                if not isinstance(row, dict) or not isinstance(row.get("name"), str) or not isinstance(row.get("enabled"), bool):
-                    raise ValueError("Each entry requires a name and enabled boolean")
-                clean.append({"name": row["name"][:100], "enabled": row["enabled"]})
-            if digest:
-                import hashlib
-                import json
-                sorted_items = sorted([[row["name"], bool(row["enabled"])] for row in clean], key=lambda x: x[0])
-                canonical_repr = json.dumps(sorted_items, separators=(",", ":"))
-                computed_digest = hashlib.sha256(canonical_repr.encode()).hexdigest()
-                if digest.lower() != computed_digest.lower():
-                    raise ValueError("Extension inventory digest verification failed; unauthenticated modifications detected")
-                detail = f"Candidate supplied an inventory verified with SHA-256 ({digest[:8]}...)."
-            else:
-                detail = "Candidate supplied an inventory; completeness is unverified."
+            from .inventory import validate_inventory
+            clean, checked = validate_inventory(entries, digest)
+            detail = ("Candidate supplied an inventory with a matching content checksum; authenticity and completeness are unverified."
+                      if checked else "Candidate supplied an inventory without a checksum; authenticity and completeness are unverified.")
             self.context["extensions"] = clean
             self.last_scans.pop("BrowserExtensionDetector", None)
             self._event("Extension inventory imported", detail)
-            return {"imported": len(clean), "verified": bool(digest)}
+            return {"imported": len(clean), "verified": checked, "checksum_verified": checked, "browser_authenticated": False}
 
     def note(self, text):
         with self.lock:
