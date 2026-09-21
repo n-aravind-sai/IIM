@@ -1,0 +1,4 @@
+# 15.0.1 also installs on Python 3.9; 16.0 requires Python 3.10+.
+websockets==15.0.1
+cryptography==46.0.0
+reportlab==4.4.9

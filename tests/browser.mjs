@@ -1,0 +1,56 @@
+import { createRequire } from 'node:module';
+import { mkdir } from 'node:fs/promises';
+const require=createRequire(import.meta.url);
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||chromium.executablePath(),args:['--no-sandbox']});
+const page=await browser.newPage({viewport:{width:1440,height:1100},acceptDownloads:true});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+const check=(condition,message)=>{if(!condition)throw Error(message);};
+await mkdir('output',{recursive:true});
+try{
+  await page.goto('http://127.0.0.1:1420/?demo=1');
+  await page.getByRole('button',{name:'Start a session'}).click();
+  check(await page.locator('#consent-dialog').isVisible(),'Consent dialog missing');
+  check(!(await page.locator('#accepted').isChecked()),'Consent must not be preaccepted');
+  await page.locator('input[name=gaze]').check();
+  await page.locator('#accepted').check();
+  await page.getByRole('button',{name:'Start selected checks'}).click();
+  await page.waitForFunction(()=>document.querySelector('#signal-count').textContent==='2');
+  check(await page.locator('#demo-banner').isVisible(),'Demo must be labelled');
+  await page.screenshot({path:'output/dashboard-preview.png',fullPage:true});
+  await page.locator('[data-view=timeline]').click();
+  await page.locator('#context-note').fill('Captions were agreed. <script>alert(1)</script>');
+  await page.locator('#save-note').click();
+  await page.waitForFunction(()=>document.querySelector('#timeline').textContent.includes('Captions were agreed.'));
+  check((await page.locator('#timeline script').count())===0,'Notes must be escaped');
+  await page.locator('[data-view=privacy]').click();
+  check(await page.getByText('The candidate stays in control').isVisible(),'Privacy navigation failed');
+  await page.locator('#stop').click();
+  await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Session ended');
+  check(await page.locator('#delete').isEnabled(),'Deletion should be enabled after stop');
+  page.once('dialog',dialog=>dialog.accept());await page.locator('#delete').click();
+  await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Awaiting consent');
+
+  // Real loopback worker, processes only. Never activate camera or audio in this test.
+  await page.goto('http://127.0.0.1:1420/');
+  await page.waitForFunction(()=>document.querySelector('#connection').textContent==='Local worker connected');
+  await page.locator('#start').click();
+  for(const scope of ['windows','displays','gaze','audio_devices','extensions'])await page.locator(`input[name=${scope}]`).uncheck();
+  await page.locator('input[name=processes]').check();
+  await page.locator('#accepted').check();await page.getByRole('button',{name:'Start selected checks'}).click();
+  await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Monitoring is visible');
+  await page.locator('[data-detector="ProcessDetector"][data-status="partial"]').waitFor({state:'visible'});
+  await page.locator('#stop').click();
+  await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Session ended');
+  const pdfWait=page.waitForEvent('download');await page.locator('#export-pdf').click();const pdf=await pdfWait;
+  check(pdf.suggestedFilename().endsWith('.pdf'),'PDF export failed');
+  const jsonWait=page.waitForEvent('download');await page.locator('#export-json').click();const audit=await jsonWait;
+  check(audit.suggestedFilename().endsWith('.json'),'JSON export failed');
+  await page.locator('[data-view=privacy]').click();page.once('dialog',dialog=>dialog.accept());await page.locator('#delete').click();
+  await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Awaiting consent');
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'output/mobile-preview.png',fullPage:true});
+  check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile horizontal overflow');
+  check(errors.length===0,'Browser errors: '+errors.join('; '));
+  console.log('PASS: consent, labelled demo, evidence rendering, escaped notes, navigation, stop/delete, real WebSocket session, PDF/JSON download, mobile layout; no page errors.');
+}finally{await browser.close();}

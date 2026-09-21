@@ -1,0 +1,11 @@
+.venv
+.local-data
+.reports
+node_modules
+src-tauri/target
+dist
+__pycache__
+*.sqlite3
+*.bin
+.env
+output

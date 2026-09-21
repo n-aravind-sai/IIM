@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Interview Integrity Monitor",
+  "version": "0.1.0",
+  "identifier": "org.interviewintegrity.monitor",
+  "build": {
+    "beforeDevCommand": "python -m http.server 1420 --bind 127.0.0.1 --directory web",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "node scripts/build.mjs",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{"label":"main","title":"Interview Integrity Monitor","width":1280,"height":900,"minWidth":760,"minHeight":600}],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
+    "resources": {"../worker/":"worker/","../schema.sql":"schema.sql"},
+    "macOS": {"minimumSystemVersion":"12.0","infoPlist":"Info.plist"}
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "manifest_version":3,"name":"Interview Integrity - Candidate Inventory","version":"0.1.0",
+  "description":"Review and explicitly export extension metadata for an interview. No browsing data or automatic uploads.",
+  "permissions":["management"],"action":{"default_popup":"popup.html"}
+}

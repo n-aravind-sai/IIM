@@ -1,0 +1,61 @@
+name: Native source verification
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/source_manifest.py
+      - run: npm install
+      - run: npm run test:preflight
+      - run: npm run build
+      - run: cargo check --manifest-path src-tauri/Cargo.toml
+      # Source compilation is not a camera/window permission or installer test.
+      # Pin reviewed action SHAs and add lockfiles before release.
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements.txt
+      - run: npm install --no-save playwright
+      - run: npx playwright install --with-deps chromium
+      - run: |
+          python scripts/dev.py > /tmp/iim-dev.log 2>&1 &
+          IIM_DEV_PID=$!
+          trap 'kill "$IIM_DEV_PID"' EXIT
+          python - <<'PYTHON'
+          import time, urllib.request
+          for attempt in range(60):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:1420/', timeout=1) as response:
+                      if response.status == 200:
+                          break
+              except OSError:
+                  time.sleep(.5)
+          else:
+              raise SystemExit('Development server did not become ready')
+          PYTHON
+          npm run test:browser

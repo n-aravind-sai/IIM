@@ -1,0 +1,5 @@
+[
+  {"names":["cluely","interviewcoder","interview coder"],"category":"interview-assistant name","weight":0.7},
+  {"names":["otter","otter.ai","fireflies"],"category":"transcription-tool name","weight":0.3},
+  {"names":["obs","obs64","screen studio"],"category":"screen-production tool name","weight":0.15}
+]
