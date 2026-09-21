@@ -4,7 +4,7 @@ Reviewed: 21 September 2026. Repository: `n-aravind-sai/IIM`, branch `audit/reme
 
 ## Outcome
 
-All remaining findings have code changes and individual audit records. F08's full browser execution remains pending CI; the local environment has no Chromium executable. These changes do not constitute approval for real-interview use.
+All remaining findings have code changes and individual audit records. F08's full Chromium flow passed in GitHub Actions run 35586661249. Native CI exposed test portability issues, corrected below; the rerun is pending. These changes do not constitute approval for real-interview use.
 
 | Finding | Change | Focused verification |
 |---|---|---|
@@ -13,7 +13,7 @@ All remaining findings have code changes and individual audit records. F08's ful
 | F06 — inaccurate/misleading summaries | Local deterministic default, actual scope counts, effective provider threshold, no displayed compliance score | 8 summary tests passed |
 | F07 — indefinite camera startup | 10-second first-measurement deadline and 3-second stale-data limit, evaluated at camera polls; terminal cleanup and unknown coverage while waiting | 7 timeout/error/cleanup tests passed |
 | F10 — request-dependent expiry | Startup and periodic idle cleanup; independent read-time expiry enforcement | 5 tests passed, including idle deletion without HTTP traffic |
-| F08 — stale browser assertion | Stable detector/status attributes, explicit process-only test scopes and Linux Chromium CI job | JavaScript syntax passed; local browser run blocked by missing Chromium |
+| F08 — stale browser assertion | Stable detector/status attributes, explicit process-only test scopes and Linux Chromium CI job | Full Chromium flow passed in CI run 35586661249 |
 | F09 — stale source hashes | Regenerated manifest for current tracked source, LF checkout normalization, checksum check in CI | Local manifest verification passed |
 
 Each finding's detailed scope, evidence and limits is recorded in its `Fxx-*.md` audit file in this directory. Prior F01–F03 fixes remain in the regression suite and were published in import commit `40420cb84259ac9020641a6db20ba65623e8590c`.
@@ -26,7 +26,7 @@ Each finding's detailed scope, evidence and limits is recorded in its `Fxx-*.md`
 - Actual PDF-generation and transient-evidence extraction tests passed within the Python suite.
 - The browser command was attempted and failed before any page interaction because Chromium is absent. No local browser pass is claimed. The new CI job installs Chromium and exercises consent, demo, note escaping, stop/delete, native process-only session, exports and mobile layout.
 
-Local environment: Linux, Python 3.12.14, websockets 16.0, cryptography 46.0.0, ReportLab 4.4.9. The pinned websockets 15.0.1 could not be installed from this environment's package source during the preceding audit. CI is configured to install the exact requirements; its result must be checked separately.
+Local environment: Linux, Python 3.12.14, websockets 16.0, cryptography 46.0.0, ReportLab 4.4.9. The pinned websockets 15.0.1 could not be installed from this environment's package source during the preceding audit. CI installed the exact requirements successfully on Linux, Windows and macOS. The Chromium flow and macOS Python suite passed.
 
 ## Compatibility and limitations
 
@@ -37,4 +37,8 @@ Local environment: Linux, Python 3.12.14, websockets 16.0, cryptography 46.0.0, 
 - Cloud rows expire after 24 hours and are swept within the 60-second maintenance interval plus normal server-loop delay while running. Stopped servers clean at next startup. Backups, exports and filesystem snapshots require independent retention.
 - Bundled sample artifacts and the baseline audit are historical examples. Generate a current synthetic report with `python scripts/sample_report.py`; never use an old example as proof of current validation.
 
-Still outstanding: real-browser CI confirmation, Windows/macOS native permissions and physical-device release, desktop compilation/installer verification, exact-pin CI results, dependency/supply-chain review and separately measured detection accuracy. This audit cannot establish legal compliance or suitability for hiring decisions.
+Still outstanding: native CI rerun confirmation, Windows/macOS native permissions and physical-device release, desktop compilation/installer verification, dependency/supply-chain review and separately measured detection accuracy. This audit cannot establish legal compliance or suitability for hiring decisions.
+
+## Native CI follow-up
+
+Run 35586661249 found Windows-only test defects: source files and Node output were decoded with the system code page, and test SQLite connections were committed but not closed. Tests now explicitly use UTF-8 and close connections after each helper operation. No assertions were removed. Matrix fail-fast is disabled so one platform cannot cancel the other platform’s verification. macOS passed Python tests, manifest verification, JavaScript lifecycle tests and the UI build before its Rust check was cancelled by the Windows failure. A fresh run will verify both platforms completely.

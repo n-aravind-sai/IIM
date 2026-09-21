@@ -16,10 +16,10 @@ class DisclosureTests(unittest.TestCase):
                 if e.active:e.stop()
                 e.store.db.close()
     def test_ui_and_api_send_current_disclosure(self):
-        self.assertIn(DISCLOSURE,Path('web/app.js').read_text())
-        self.assertIn(DISCLOSURE,Path('docs/api.md').read_text())
+        self.assertIn(DISCLOSURE,Path('web/app.js').read_text(encoding='utf-8'))
+        self.assertIn(DISCLOSURE,Path('docs/api.md').read_text(encoding='utf-8'))
     def test_camera_fields_and_preview_are_disclosed_before_consent(self):
-        html=Path('web/index.html').read_text()
+        html=Path('web/index.html').read_text(encoding='utf-8')
         consent=html.split('<dialog id="consent-dialog">')[1]
         for phrase in ['face count','multiple-face','lighting','calibration','eye-position','pre-flight']:
             self.assertIn(phrase,consent)

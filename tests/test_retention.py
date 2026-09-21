@@ -1,3 +1,4 @@
+from contextlib import closing
 import json
 import sqlite3
 import tempfile
@@ -21,9 +22,9 @@ class RetentionTests(unittest.TestCase):
     def make(self,interval=60):
         self.server=make_server(port=0,directory=self.tmp.name,write_token=self.token,read_token=self.read,trusted_keys=['fixture'],cleanup_interval=interval)
     def insert(self,identity,expiry):
-        with sqlite3.connect(self.path) as db:db.execute('INSERT INTO reports VALUES(?,?,?,?)',(identity,time.time(),expiry,'{}'))
+        with closing(sqlite3.connect(self.path)) as db, db:db.execute('INSERT INTO reports VALUES(?,?,?,?)',(identity,time.time(),expiry,'{}'))
     def ids(self):
-        with sqlite3.connect(self.path) as db:return {r[0] for r in db.execute('SELECT id FROM reports')}
+        with closing(sqlite3.connect(self.path)) as db:return {r[0] for r in db.execute('SELECT id FROM reports')}
     def serve(self):
         self.thread=threading.Thread(target=lambda:self.server.serve_forever(poll_interval=.01),daemon=True);self.thread.start()
     def test_startup_removes_expired_rows_without_a_request(self):

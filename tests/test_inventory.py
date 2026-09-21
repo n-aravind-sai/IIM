@@ -9,7 +9,7 @@ class InventoryTests(unittest.TestCase):
     def export(self, rows):
         return json.loads(subprocess.check_output(['node','--input-type=module','-e',
             "import {exportInventory} from './companion/inventory.js'; let s='';for await(const c of process.stdin)s+=c; console.log(JSON.stringify(await exportInventory(JSON.parse(s))));"],
-            input=json.dumps(rows),text=True))
+            input=json.dumps(rows),encoding='utf-8'))
     def test_real_companion_exports_import_through_engine(self):
         cases = [['é'],['a','Z'],['😀','\ue000','汉字'],['same','same'],['x'*99+'😀'+'Z'],['\ud800','a\n"\\'],['\x7f','\u2028','\u2029']]
         with tempfile.TemporaryDirectory() as d:
