@@ -123,9 +123,9 @@ def render_report(bundle, synthetic=False, prompt_loop_summary=None):
     }
     summary_data = prompt_loop_summary or PromptLoopEngine().run(session_context)
     story += [
-        p("Executive summary (Evaluator-Optimizer Loop)", "h"),
+        p("Session summary", "h"),
         p(summary_data["summary"]),
-        p(f"Synthesis status: {summary_data['status']} | Iterations: {summary_data['iterations']} | Compliance score: {int(summary_data.get('score', 1.0) * 100)}%", "small"),
+        p("Summary method: " + ("local deterministic summary" if summary_data.get("method") == "deterministic" else "configured summary provider; human review required"), "small"),
     ]
     value=latest["score"]["value"]
     badge_label = {

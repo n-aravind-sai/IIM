@@ -83,7 +83,7 @@ class PromptLoopTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "fallback")
         self.assertEqual(result["iterations"], 3)
-        self.assertIn("deterministic fallback", result["summary"])
+        self.assertIn("deterministic summary", result["summary"])
         self.assertIn("human review is required", result["summary"])
         self.assertEqual(len(result["history"]), 3)
 
@@ -98,3 +98,28 @@ class PromptLoopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SummaryAccuracyTests(unittest.TestCase):
+    def test_default_is_deterministic_and_does_not_count_acceptance(self):
+        context={'consent':{'accepted':True,'processes':True,'version':'iim-consent-2'},'signals':[]}
+        result=PromptLoopEngine().run(context)
+        self.assertEqual(result['status'],'deterministic')
+        self.assertEqual(result['iterations'],0)
+        self.assertIn('1 technical scopes (processes)',result['summary'])
+        self.assertNotIn('accepted',result['summary'])
+        self.assertIn('0 unique technical observation',result['summary'])
+    def test_custom_acceptance_threshold_is_enforced(self):
+        from worker.prompt_loop import EvaluationResult
+        class FixedEvaluator:
+            def evaluate(self,draft,context):return EvaluationResult(True,.85,[],[])
+        result=PromptLoopEngine(provider=MockLLMProvider(['a draft']),evaluator=FixedEvaluator(),config=PromptLoopConfig(max_iterations=1,passing_score=1)).run({})
+        self.assertEqual(result['status'],'fallback')
+        self.assertFalse(result['history'][0]['accepted'])
+    def test_fallback_score_is_actually_evaluated(self):
+        e=PromptLoopEngine(provider=MockLLMProvider(['guilty']),config=PromptLoopConfig(max_iterations=1))
+        result=e.run({'consent':{},'signals':[]})
+        self.assertEqual(result['score'],e.evaluator.evaluate(result['summary'],{'consent':{},'signals':[]}).score)
+    def test_invalid_configuration_and_removed_relaxation_are_explicit(self):
+        for kwargs in [{'passing_score':2},{'max_iterations':0}]:
+            with self.assertRaises(ValueError):PromptLoopConfig(**kwargs)
+        with self.assertRaises(TypeError):PromptLoopConfig(strict_compliance=False)

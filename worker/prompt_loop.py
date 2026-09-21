@@ -6,11 +6,11 @@ Implements an autonomous outer control loop:
   3. Feedback Injection: Converts critique into structured instructions for the next iteration.
   4. Stop Rules: Halts on passing rubric score, policy compliance, or max iteration limit.
 """
-import os
 import re
 import json
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+from .engine import SCOPES
 
 
 FORBIDDEN_ACCUSATORY_PATTERNS = [
@@ -49,7 +49,12 @@ class EvaluationResult:
 class PromptLoopConfig:
     max_iterations: int = 3
     passing_score: float = 0.85
-    strict_compliance: bool = True
+
+    def __post_init__(self):
+        if not 1 <= self.max_iterations <= 10:
+            raise ValueError("max_iterations must be between 1 and 10")
+        if not 0 <= self.passing_score <= 1:
+            raise ValueError("passing_score must be between 0 and 1")
 
 
 class LLMProvider:
@@ -100,8 +105,8 @@ class ComplianceEvaluator:
 
         # Check 3: Acknowledgment of Disabled Scopes or Missing Coverage
         disabled_scopes = [
-            scope for scope, enabled in session_context.get("consent", {}).items()
-            if not enabled and scope in ("gaze", "audio_devices", "windows", "displays", "processes")
+            scope for scope in SCOPES
+            if session_context.get("consent", {}).get(scope) is not True
         ]
         if disabled_scopes and not any(s in lower_draft for s in ("disabled", "not enabled", "omitted", "missing")):
             critique.append(f"Acknowledge that certain scopes were disabled by candidate consent: {', '.join(disabled_scopes)}.")
@@ -126,7 +131,7 @@ class PromptLoopEngine:
     """Orchestrates the Generator -> Evaluator -> Feedback loop."""
 
     def __init__(self, provider: Optional[LLMProvider] = None, evaluator: Optional[ComplianceEvaluator] = None, config: Optional[PromptLoopConfig] = None):
-        self.provider = provider or MockLLMProvider()
+        self.provider = provider
         self.evaluator = evaluator or ComplianceEvaluator()
         self.config = config or PromptLoopConfig()
 
@@ -177,6 +182,11 @@ class PromptLoopEngine:
 
     def run(self, session_context: Dict[str, Any]) -> Dict[str, Any]:
         """Runs the loop until convergence or max iterations reached."""
+        if self.provider is None:
+            summary = self.fallback_deterministic(session_context)
+            evaluation = self.evaluator.evaluate(summary, session_context)
+            return {"status": "deterministic", "method": "deterministic", "iterations": 0,
+                    "summary": summary, "score": evaluation.score, "history": []}
         feedback_history = []
         iteration_records = []
 
@@ -196,9 +206,12 @@ class PromptLoopEngine:
                 "evaluation": eval_res.to_dict(),
             })
 
-            if eval_res.passed:
+            accepted = eval_res.passed and not eval_res.violations and eval_res.score >= self.config.passing_score
+            iteration_records[-1]["accepted"] = accepted
+            if accepted:
                 return {
                     "status": "success",
+                    "method": "configured_provider",
                     "iterations": iteration,
                     "summary": draft,
                     "score": eval_res.score,
@@ -211,20 +224,25 @@ class PromptLoopEngine:
 
         # Fallback if max iterations exceeded
         fallback_summary = self.fallback_deterministic(session_context)
+        fallback_evaluation = self.evaluator.evaluate(fallback_summary, session_context)
         return {
             "status": "fallback",
+            "method": "deterministic",
             "iterations": self.config.max_iterations,
             "summary": fallback_summary,
-            "score": 0.7,
+            "score": fallback_evaluation.score,
             "history": iteration_records,
         }
 
     def fallback_deterministic(self, session_context: Dict[str, Any]) -> str:
         signals = session_context.get("signals", [])
-        scopes = [k for k, v in session_context.get("consent", {}).items() if v is True]
+        consent = session_context.get("consent", {})
+        scopes = [scope for scope in SCOPES if consent.get(scope) is True]
+        disabled = [scope for scope in SCOPES if consent.get(scope) is not True]
         return (
-            f"The session was monitored across {len(scopes)} enabled technical scopes ({', '.join(scopes)}). "
-            f"{len(signals)} technical observation(s) were retained for human review. "
-            "This summary was generated via deterministic fallback; human review is required as technical "
-            "observations alone do not determine candidate integrity or qualification."
+            f"The candidate enabled {len(scopes)} technical scopes ({', '.join(scopes) or 'none'}). "
+            f"{len(signals)} unique technical observation(s) were retained for human review. "
+            f"Scopes not enabled: {', '.join(disabled) or 'none'}. Enabled scopes do not guarantee available measurements. "
+            "Unavailable checks remain unknown. This local deterministic summary uses the recorded scope choices "
+            "and retained observation count; human review is required. It does not determine intent or candidate qualification."
         )
