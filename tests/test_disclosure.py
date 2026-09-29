@@ -9,8 +9,10 @@ class DisclosureTests(unittest.TestCase):
             e=Engine(d,lambda:[])
             try:
                 with self.assertRaises(ValueError):e.start({'accepted':True,'version':'iim-consent-1','gaze':True})
+                with self.assertRaises(ValueError):e.start({'accepted':True,'version':'iim-consent-2','remote_sessions':True})
+                with self.assertRaises(ValueError):e.start({'accepted':True,'version':'iim-consent-3','processes':True,'windows':True})
                 state=e.start({'accepted':True,'version':DISCLOSURE,'gaze':True})
-                self.assertEqual(state['consent']['version'],'iim-consent-2')
+                self.assertEqual(state['consent']['version'],'iim-consent-4')
                 self.assertTrue(e.export()['manifest']['session']['consent']['gaze'])
             finally:
                 if e.active:e.stop()

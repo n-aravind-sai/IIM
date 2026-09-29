@@ -1,21 +1,31 @@
 import {demoClient} from './demo.js';
 const $ = selector => document.querySelector(selector);
 const demo = new URLSearchParams(location.search).get('demo') === '1';
-const labels = {OverlayDetector:'Window overlays',ProcessDetector:'Application names',AudioCaptureDetector:'Audio devices',GazeDetector:'Eye-position analysis',VirtualDisplayDetector:'Display adapters',BrowserExtensionDetector:'Browser extensions'};
-const scopeLabels = {processes:'Application names',windows:'Window attributes',displays:'Display metadata',audio_devices:'Audio device names',extensions:'Browser inventory',gaze:'Optional camera'};
+const labels = {OverlayDetector:'Window overlays',ProcessDetector:'Application names',AudioCaptureDetector:'Audio devices',GazeDetector:'Eye-position analysis',VirtualDisplayDetector:'Display adapters',BrowserExtensionDetector:'Browser extensions',RemoteSessionDetector:'Windows session protocol'};
+const scopeLabels = {processes:'Application names',windows:'Window attributes',displays:'Display metadata',audio_devices:'Audio device names',extensions:'Browser inventory',gaze:'Optional camera',remote_sessions:'Windows session protocol'};
 let client, snapshot, connected=false, toastTimer;
+const defaultPolicy=()=>({version:1,phase:'discussion',allowed_apps:[],phase_apps:{},max_displays:null,context:''});
+let policyDraft=defaultPolicy(),editingPolicy=null,editingRevision=null,editingSession=null;
+function policyDescription(policy){
+  if(!policy)return 'No session rules recorded.';
+  const apps=[...policy.allowed_apps,...(policy.phase_apps[policy.phase]||[])];
+  return `Phase: ${policy.phase.replace('_',' ')}. Permitted applications: ${apps.join(', ')||'none specified'}. Approval unverified: candidate-declared exceptions remain pending review and do not change the index. Display limit: ${policy.max_displays??'not specified'} (desktop monitor observations only; physical mirrors unknown).${policy.context?' Agreed context: '+policy.context:''}`;
+}
 function escape(value) {return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function toast(message,error=false) {const el=$('#toast');el.textContent=message;el.classList.toggle('error',error);el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.hidden=true,6500);}
 function timeLabel(value){return new Date(value).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});}
-function setConnection(label,ok){connected=ok;$('#connection').textContent=label;$('#connection').className=`pill ${ok?'':'muted'}`;$('#start').disabled=!ok||Boolean(snapshot?.active);}
+function setConnection(label,ok){connected=ok;$('#connection').textContent=label;$('#connection').className=`pill ${ok?'':'muted'}`;$('#start').disabled=!ok||Boolean(snapshot?.active||snapshot?.stopping);}
 
 function render(data) {
   snapshot=data;
   const expanded=new Set([...document.querySelectorAll('.observation details[open]')].map(el=>el.parentElement.dataset.signal));
   const signals=data.results.flatMap(r=>r.signals);
-  $('#session-status').textContent=data.active?'Monitoring is visible':data.session_id?'Session ended':'Awaiting consent';
+  $('#session-status').textContent=data.cleanup_state==='failed'?'Cleanup failed — close the app':data.stopping?'Stopping monitoring':data.active?'Monitoring is visible':data.session_id?'Session ended':'Awaiting consent';
   $('#live-dot').classList.toggle('live',data.active);
   $('#session-id').textContent=data.session_id?`SESSION ${data.session_id.slice(0,8).toUpperCase()}`:'No active session';
+  $('#inventory-session').value=data.active?data.session_id:'';
+  const inventory=data.results.find(r=>r.detector==='BrowserExtensionDetector')?.metrics;
+  $('#inventory-status').textContent=inventory?.format?`Latest import: ${inventory.browser||'unknown browser'} / ${inventory.profile||'unknown profile'}; ${inventory.freshness}. One declared profile; authenticity and completeness unverified.`:'No inventory imported for this session.';
   $('#elapsed').textContent=data.active?`${String(Math.floor(data.elapsed_seconds/60)).padStart(2,'0')}:${String(data.elapsed_seconds%60).padStart(2,'0')}`:data.session_id?'STOPPED':'00:00';
   $('#score').textContent=data.score.value??'—';
   $('#gauge-value').setAttribute('stroke-dashoffset',String(364.4*(1-(data.score.value??0)/100)));
@@ -26,20 +36,26 @@ function render(data) {
   $('#signal-count').textContent=signals.length;
   $('#signal-caption').textContent=data.session_id?(signals.length?'Review evidence and candidate context':'No matching observations in available checks'):'Monitoring has not started';
   $('#coverage').textContent=data.score.coverage;
-  $('#coverage-caption').textContent=`${data.results.filter(r=>['available','partial'].includes(r.status)).length} of 6 detectors returning data`;
+  $('#coverage-caption').textContent=`${data.results.filter(r=>['available','partial'].includes(r.status)).length} of ${Object.keys(labels).length} detectors returning data`;
+  const gaps=data.coverage_gaps||[];
+  $('#coverage-gap-notice').hidden=gaps.length===0;
+  $('#coverage-gap-notice').textContent=gaps.length?`Measurements unavailable: ${gaps.map(g=>labels[g.detector]||g.detector).join(', ')}. These intervals are recorded as unknown coverage.`:'';
   $('#review-count').textContent=`${signals.length} ${data.active?'active':'in last sample'}`;
-  $('#start').disabled=!connected||data.active;$('#stop').disabled=!data.active;
-  $('#delete').disabled=!data.session_id||data.active;
+  $('#start').disabled=!connected||data.active||Boolean(data.stopping);$('#stop').disabled=!data.active;
+  $('#delete').disabled=!data.session_id||data.active||Boolean(data.stopping);
   $('#attest-btn').disabled=!data.session_id;
   for(const id of ['export-json','export-pdf'])$(`#${id}`).disabled=!data.session_id;
   for(const id of ['save-note','question','answer'])$(`#${id}`).disabled=!data.active;
-  $('#report-title').textContent=data.session_id&&!data.active?'Session summary ready':'Your session, your record';
-  $('#report-caption').textContent=data.session_id&&!data.active?'Monitoring has stopped. Review context, export your record, or delete the session.':'Export observations, limitations and the signed audit history.';
-  $('#signals').innerHTML=signals.length?signals.map(s=>`<div class="observation" data-signal="${escape(s.id)}"><h3>${escape(s.title)}</h3><p>${escape(s.explanation)}</p><div class="evidence">${escape(Object.entries(s.evidence).map(([k,v])=>`${k}: ${v}`).join(' · '))}</div><details ${expanded.has(s.id)?'open':''}><summary>Why this may be legitimate</summary><p>${escape(s.limitation)}</p></details><div class="meta"><span>${escape(labels[s.detector]||s.detector)}</span><span>Observation confidence ${Math.round(s.confidence*100)}% · heuristic</span></div></div>`).join(''):`<div class="empty"><span>◇</span><h3>${data.session_id?'No matching observations':'No observations yet'}</h3><p>${data.session_id?'Check the coverage panel for unavailable or disabled detectors. Absence of signals does not establish absence of assistance.':'Monitoring starts only after the candidate selects scopes and gives consent.'}</p></div>`;
+  $('#report-title').textContent=data.stopping?'Session cleanup needs to finish':data.session_id&&!data.active?'Session summary ready':'Your session, your record';
+  $('#report-caption').textContent=data.cleanup_state==='failed'?'Cleanup or the final audit failed. Close the app; any verified export may be incomplete.':data.stopping?'Releasing devices and saving the final audit.':data.session_id&&!data.active?'Monitoring has stopped. Review context, export your record, or delete the session.':'Export observations, limitations and the signed audit history.';
+  $('#source-groups').innerHTML=(data.review_groups||[]).map(group=>`<div class="card-note"><b>Shared Windows process source</b><p>${escape(group.detectors.map(name=>labels[name]||name).join(' + '))} · ${group.signal_ids.length} observations. The index avoids adding duplicate deductions when its strongest observations share this source. This does not authenticate software or establish intent.</p></div>`).join('');
+  $('#signals').innerHTML=signals.length?signals.map(s=>`<div class="observation" data-signal="${escape(s.id)}"><h3>${escape(s.title)}</h3><p>${escape(s.explanation)}</p><div class="evidence">${escape(Object.entries(s.evidence).map(([k,v])=>`${k}: ${typeof v==='object'?JSON.stringify(v):v}`).join(' · '))}</div><details ${expanded.has(s.id)?'open':''}><summary>Why this may be legitimate</summary><p>${escape(s.limitation)}</p></details><div class="meta"><span>${escape(labels[s.detector]||s.detector)}</span><span>Observation confidence ${Math.round(s.confidence*100)}% · heuristic</span></div></div>`).join(''):`<div class="empty"><span>◇</span><h3>${data.session_id?'No matching observations':'No observations yet'}</h3><p>${data.session_id?'Check the coverage panel for unavailable or disabled detectors. Absence of signals does not establish absence of assistance.':'Monitoring starts only after the candidate selects scopes and gives consent.'}</p></div>`;
   const results=data.results.length?data.results:Object.keys(labels).map(detector=>({detector,status:'disabled',detail:'Awaiting candidate consent.'}));
   $('#detectors').innerHTML=results.map(r=>`<div class="detector-row" data-detector="${escape(r.detector)}" data-status="${escape(r.status)}"><div><b>${escape(labels[r.detector]||r.detector)}</b><small>${escape(r.detail)}</small></div><span class="pill ${r.status==='partial'?'warn':r.status==='available'?'':'muted'}">${escape(r.status)}</span></div>`).join('');
   $('#timeline').innerHTML=data.timeline.length?data.timeline.map(e=>`<div class="timeline-item"><time>${escape(timeLabel(e.time))}</time><div><b>${escape(e.title)}</b><p>${escape(e.detail)}</p></div></div>`).join(''):'<div class="empty"><h3>Your timeline starts here</h3><p>Consent, observations and candidate context will appear during a session.</p></div>';
   $('#consent-summary').innerHTML=Object.entries(scopeLabels).map(([scope,label])=>`<div class="consent-row"><b>${label}</b><span>${data.consent[scope]?'Selected':'Not selected'}</span></div>`).join('');
+  $('#policy-summary').textContent=policyDescription(data.policy||policyDraft);
+  $('#policy-btn').disabled=demo||Boolean(data.stopping);
   renderGaze(data);
 }
 
@@ -50,7 +66,7 @@ function renderGaze(data){
   for(const p of points){if(p)segment.push(p);else if(segment.length){segments.push(segment);segment=[];}}if(segment.length)segments.push(segment);
   $('#gaze-chart').innerHTML=[20,80,140].map(y=>`<line x1="12" x2="588" y1="${y}" y2="${y}" stroke="#25333f" stroke-dasharray="4 5"/>`).join('')+segments.map(s=>`<polyline points="${s.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#68dbc1" stroke-width="2"/>`).join('');
   $('#gaze-empty').hidden=segments.some(s=>s.length>1);
-  $('#gaze-badge').textContent=!data.consent.gaze?'Off':r?.status==='error'?'Unavailable':r?.status==='waiting'?'Starting':r?.metrics?.calibrated?'Experimental':'Calibrating';
+  $('#gaze-badge').textContent=!data.consent.gaze?'Off':r?.status==='error'?'Unavailable':r?.status==='waiting'?'Measurements unavailable':r?.metrics?.calibrated?'Experimental':'Calibrating';
   if(data.consent.gaze&&!$('#gaze-empty').hidden)$('#gaze-empty').innerHTML=r?.status==='error'?'Camera unavailable. You can continue without it.':'Waiting for reliable samples.<br><small>Look comfortably at your screen; calibration needs 50 stable samples.</small>';
   if(!data.consent.gaze)$('#gaze-empty').innerHTML='Enable optional camera analysis at session start.<br><small>No camera images are stored or shared.</small>';
 }
@@ -66,13 +82,43 @@ for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('clic
   for(const el of document.querySelectorAll('[data-view]'))el.classList.toggle('active',el===b);
   for(const view of document.querySelectorAll('.view'))view.hidden=view.id!==`view-${b.dataset.view}`;
 });
-$('#start').addEventListener('click',()=>{$('#accepted').checked=false;$('#consent-dialog').showModal();});
+$('#start').addEventListener('click',()=>{$('#accepted').checked=false;$('#consent-policy-summary').textContent=policyDescription(policyDraft);$('#consent-dialog').showModal();});
 $('#cancel-consent').addEventListener('click',()=>$('#consent-dialog').close());
 $('#consent-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
-  const form=new FormData(event.currentTarget);const consent={accepted:form.has('accepted'),version:'iim-consent-2'};
+  const form=new FormData(event.currentTarget);const consent={accepted:form.has('accepted'),version:'iim-consent-4'};
   for(const key of Object.keys(scopeLabels))consent[key]=form.has(key);
   if(!Object.keys(scopeLabels).some(key=>consent[key]))throw Error('Select at least one monitoring scope.');
-  await rpc('start',{consent});$('#consent-dialog').close();toast(demo?'Synthetic demo started. No monitoring is taking place.':'Selected monitoring checks started.');
+  await rpc('start',{consent,policy:policyDraft});policyDraft=defaultPolicy();$('#consent-dialog').close();toast(demo?'Synthetic demo started. No monitoring is taking place.':'Selected monitoring checks started.');
+});});
+$('#policy-btn').addEventListener('click',()=>{
+  editingPolicy=structuredClone(snapshot?.active?snapshot.policy:policyDraft);
+  editingRevision=snapshot?.active?snapshot.policy.revision:null;
+  editingSession=snapshot?.active?snapshot.session_id:null;
+  $('#policy-phase').value=editingPolicy.phase;
+  $('#policy-apps').value=editingPolicy.allowed_apps.join(', ');
+  $('#policy-phase-apps').value=(editingPolicy.phase_apps[editingPolicy.phase]||[]).join(', ');
+  $('#policy-displays').value=editingPolicy.max_displays??'';
+  $('#policy-context').value=editingPolicy.context;
+  $('#policy-accepted').checked=false;
+  $('#policy-dialog').showModal();
+});
+$('#policy-phase').addEventListener('change',()=>{
+  editingPolicy.phase_apps[editingPolicy.phase]=$('#policy-phase-apps').value.split(',').map(s=>s.trim()).filter(Boolean);
+  editingPolicy.phase=$('#policy-phase').value;
+  $('#policy-phase-apps').value=(editingPolicy.phase_apps[editingPolicy.phase]||[]).join(', ');
+});
+$('#cancel-policy').addEventListener('click',()=>$('#policy-dialog').close());
+$('#policy-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
+  if(!$('#policy-accepted').checked)throw Error('Confirm that these rules were agreed before saving.');
+  const phase=$('#policy-phase').value;
+  const policy={version:1,phase,allowed_apps:$('#policy-apps').value.split(',').map(s=>s.trim()).filter(Boolean),
+    phase_apps:{...editingPolicy.phase_apps,[phase]:$('#policy-phase-apps').value.split(',').map(s=>s.trim()).filter(Boolean)},
+    max_displays:$('#policy-displays').value?Number($('#policy-displays').value):null,context:$('#policy-context').value};
+  if(editingSession){
+    if(!snapshot?.active||snapshot.session_id!==editingSession)throw Error('The session changed. Reopen the rules to review them.');
+    await rpc('policy',{policy,expected_session_id:editingSession,expected_revision:editingRevision,accepted:true});
+  }else{policyDraft=policy;$('#policy-summary').textContent=policyDescription(policyDraft);}
+  $('#policy-dialog').close();toast(editingSession?'Agreed rules updated in the signed audit.':'Rules prepared for the next consented session.');
 });});
 $('#stop').addEventListener('click',()=>action(async()=>{stopPreflight();await rpc('stop');toast('Monitoring stopped. Your session summary is ready.');}));
 $('#save-note').addEventListener('click',()=>action(async()=>{const text=$('#context-note').value.trim();if(!text)throw Error('Enter a note first.');await rpc('note',{text});$('#context-note').value='';toast('Candidate context added to the timeline.');}));

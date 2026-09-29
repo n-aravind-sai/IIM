@@ -2,8 +2,59 @@
 import hashlib
 import json
 import re
+from datetime import datetime
 
 FORMAT = 'iim.extensions.v2'
+BOUND_FORMAT = 'iim.extensions.v3'
+MAX_AGE_SECONDS = 300
+
+
+def bound_checksum(data):
+    # Ordered array avoids cross-language object-key ordering differences.
+    value = [BOUND_FORMAT, data['session_id'], data['exported_at'], data['browser'], data['profile'],
+             checksum(clean_entries(data['extensions']))]
+    encoded = json.dumps(value, ensure_ascii=True, separators=(',', ':'))
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+
+
+def prepare_inventory(entries, digest, session_id, tick, imported_at):
+    """Validate provenance claims and bound local freshness; no browser authentication."""
+    if not isinstance(entries, dict) or entries.get('format') != BOUND_FORMAT:
+        clean, checked = validate_inventory(entries, digest)
+        metadata = {'format': entries.get('format', 'legacy') if isinstance(entries, dict) else 'legacy',
+                    'imported_at': imported_at, 'exported_at': entries.get('exported_at') if isinstance(entries, dict) else None,
+                    'session_bound': False, 'browser_authenticated': False,
+                    'checksum_verified': checked, 'freshness': 'unverified', 'entry_count': len(clean)}
+        # Retain only a bounded timestamp claim from older formats.
+        if not isinstance(metadata['exported_at'], str) or len(metadata['exported_at']) > 80:
+            metadata['exported_at'] = None
+        return clean, metadata, None
+    clean = clean_entries(entries.get('extensions'))
+    if entries.get('session_id') != session_id:
+        raise ValueError('Inventory belongs to another session; export it for the current session')
+    for key in ('browser', 'profile'):
+        value = entries.get(key)
+        if not isinstance(value, str) or not 1 <= len(value.strip()) <= 100 or any(ord(c) < 32 for c in value):
+            raise ValueError('Inventory requires short browser and profile labels')
+    timestamp = entries.get('exported_at')
+    if not isinstance(timestamp, str) or len(timestamp) > 80:
+        raise ValueError('Inventory requires an export timestamp')
+    try:
+        exported = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        if exported.tzinfo is None:
+            raise ValueError()
+        age = (datetime.fromisoformat(imported_at) - exported).total_seconds()
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError('Invalid inventory export timestamp') from None
+    if age < -60 or age >= MAX_AGE_SECONDS:
+        raise ValueError('Inventory is future-dated or stale; export a fresh inventory')
+    supplied = entries.get('digest')
+    if not isinstance(supplied, str) or not re.fullmatch('[0-9a-fA-F]{64}', supplied) or supplied.lower() != bound_checksum(entries):
+        raise ValueError('Inventory checksum does not match its contents and scope')
+    metadata = {key: entries[key] for key in ('format', 'session_id', 'exported_at', 'browser', 'profile')}
+    metadata.update(imported_at=imported_at, session_bound=True, browser_authenticated=False,
+                    checksum_verified=True, freshness='fresh_claim', entry_count=len(clean))
+    return clean, metadata, tick + MAX_AGE_SECONDS - max(0, age)
 
 
 def clean_entries(entries):

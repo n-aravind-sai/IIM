@@ -39,6 +39,29 @@ class CoreTests(unittest.TestCase):
     def test_expired_heartbeat_stops_before_scan(self):
         self.engine.start(self.consent);self.engine.last_seen=time.monotonic()-16;self.engine.poll()
         self.assertFalse(self.engine.active);self.assertEqual(self.fake.calls,0)
+    def test_stale_queued_poll_never_stops_or_scans_replacement(self):
+        old = self.engine.start(self.consent)['session_id']
+        self.engine.stop()
+        self.engine.start(self.consent)
+        self.engine.last_seen = time.monotonic() - 16
+        before = self.engine.export()
+        self.engine.poll(expected_session=old)
+        self.assertTrue(self.engine.active)
+        self.assertEqual(self.fake.calls, 0)
+        self.assertEqual(self.engine.export(), before)
+
+    def test_replacement_between_watchdog_and_scan_is_not_polled(self):
+        self.engine.start(self.consent)
+
+        def replace_session(**kwargs):
+            self.engine.stop()
+            self.engine.start(self.consent)
+
+        with patch.object(self.engine, 'watchdog', side_effect=replace_session):
+            self.engine.poll()
+        self.assertTrue(self.engine.active)
+        self.assertEqual(self.fake.calls, 0)
+
     def test_second_session_requires_fresh_consent(self):
         self.engine.start(self.consent);self.engine.stop()
         with self.assertRaises(ValueError):self.engine.start({'accepted':False})

@@ -1,5 +1,7 @@
 # Verification record
 
+This page preserves the original creation-time results. See [foundation progress and current local checks](foundation-progress.md) for the 23 September 2026 implementation pass and [the later audit record](audits/Remaining-Fixes-Report.md) for the intervening historical CI results.
+
 Created and checked on 13 September 2026 in a Linux development environment with Python 3.12.14, Node 24.19.0, websockets 16.0, cryptography 46.0.0 and ReportLab 4.4.9.
 
 ## Installation compatibility correction

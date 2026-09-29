@@ -17,6 +17,8 @@ flowchart TD
 
 ## Session lifecycle
 
+The latest foundation additions are detailed in [foundation progress](foundation-progress.md) and [API additions](api.md#foundation-additions). Startup now stages consent, policy and initial coverage records before activating monitoring. Concurrent stop callers share one completion result. Signed unavailable intervals and versioned session policies accompany observations; raw evidence remains intact and candidate-declared process exceptions retain their original penalty pending independent review. Stereo Mix is informational and has zero index weight.
+
 1. Rust starts the local worker with an unguessable capability token through stdin. The worker binds an ephemeral port on `127.0.0.1`. It initializes local persistence but runs no detector.
 2. Rust returns the endpoint/token to its local main window. Only exact approved origins can connect; the first WebSocket message must authenticate. There is one candidate controller, and no unauthenticated observer stream.
 3. The candidate accepts the current disclosure and chooses scopes. The backend validates these choices and records consent before sampling.
@@ -56,7 +58,7 @@ Statuses are `available`, `partial`, `unsupported`, `disabled`, `error`. New mod
 
 ## Technical index
 
-For each available/partial technical detector, take the **largest** `confidence * weight` among its current signals. Multiply that by the detector cap, sum the penalties, and subtract from 100:
+For each available/partial technical detector, take the **largest** `confidence * weight` among its current signals. Multiply that by the detector cap, deduplicate supported shared-process maxima, then subtract the remaining penalties from 100:
 
 | Detector | Maximum deduction |
 |---|---:|
@@ -67,13 +69,13 @@ For each available/partial technical detector, take the **largest** `confidence 
 | Display metadata | 5 |
 | Gaze and manual response timing | 0 |
 
-The theoretical range under these conservative caps is 45-100, displayed on a 0-100 scale; the shipped rules generally have lower weights. This is not a statistically calibrated integrity measurement. It must not be used as a pass/fail threshold, eligibility decision or ranking. Signals from the same detector do not stack. Signals across detectors can still be correlated, so this is not a Bayesian probability.
+The theoretical range under these conservative caps is 45-100, displayed on a 0-100 scale; the shipped rules generally have lower weights. This is not a statistically calibrated integrity measurement. It must not be used as a pass/fail threshold, eligibility decision or ranking. Signals from the same detector do not stack. Index version 2 counts only the larger process/window deduction when the selected maxima share a randomized Windows process-instance reference. Names or timing alone never establish that link. Browser/audio associations and failed OS queries remain unknown; other cross-detector deductions may still overlap. This is not a Bayesian probability.
 
-Coverage is a separate display across five technical detectors: full visibility counts 1, partial counts 0.5, everything else counts 0. A camera-only session has no technical index. If no technical result is usable, the index is `null`, never a reassuring 100. Missing/declined checks reduce observable coverage, not the candidate's index. Current implementations are primarily partial by design.
+Coverage is a separate display across five technical detectors: full visibility counts 1, partial counts 0.5, everything else counts 0. A camera-only or remote-protocol-only session has no technical index. If no technical result is usable, the index is `null`, never a reassuring 100. Missing/declined checks reduce observable coverage, not the candidate's index. Current implementations are primarily partial by design.
 
 ## Native implementation
 
-- Windows processes: Toolhelp32 executable-name snapshot, with native handle cleanup. Window enumeration: `EnumWindows`, extended styles, layered alpha and capture affinity queries. Display inventory: active `EnumDisplayDevicesW` adapters.
+- Windows processes: Toolhelp32 executable-name snapshot, with native handle cleanup. Window enumeration: `EnumWindows`, extended styles, layered alpha and capture affinity queries. Display inventory: active `EnumDisplayDevicesW` adapters, separately from `GetSystemMetrics(SM_CMONITORS)` desktop monitor counts. Mirrored physical targets are unknown. Optional `WTSQuerySessionInformationW(WTSClientProtocolType)` reports only the current worker session protocol, with no identity/address collection.
 - macOS processes: `/bin/ps` `comm` metadata, with basenames only. Windows: Quartz public metadata with titles excluded. Displays: active CoreGraphics display enumeration; virtual attribution remains unknown.
 - Audio: PortAudio input-device names through `sounddevice`; no stream is opened. Multiple clients, active loopback use and speech recognition cannot be inferred from the device list.
 - Browser: reviewed export from `chrome.management`. No hidden profile reading, developer-protocol attachment or browsing-history collection.
@@ -81,7 +83,7 @@ Coverage is a separate display across five technical detectors: full visibility 
 
 ## Persistence and resource envelope
 
-SQLite stores consent, matching evidence, capability samples and voluntary notes. Full process lists, PIDs, window handles, camera frames and all audio stay out of persistent storage. Camera metadata includes eye-position consistency, sample quality, calibration counts/status, lighting, face count and multiple-face observations, as disclosed by `iim-consent-2`. The browser pre-flight camera/microphone preview is separate, optional and never retained. Sessions expire 24 hours after creation; idle app pruning runs at most once a minute or on next startup. Exported files and external backups require separate retention.
+SQLite stores consent, matching evidence, capability samples and voluntary notes. Full process lists, PIDs, process creation times, window handles, camera frames and all audio stay out of persistent storage. When process and window scopes are both selected, a per-session HMAC reference can associate matching observations. The private key stays transient and is cleared at stop. Camera metadata includes eye-position consistency, sample quality, calibration counts/status, lighting, face count and multiple-face observations, as disclosed by `iim-consent-4`. The browser pre-flight camera/microphone preview is separate, optional and never retained. Sessions expire 24 hours after creation; idle app pruning runs at most once a minute or on next startup. Exported files and external backups require separate retention.
 
 Signing is Ed25519 over a stored manifest containing session metadata, count and chain head. Event hashes bind the session ID, sequence, previous hash and exact payload string. Append validates the preceding checkpoint; export does not re-sign modified database content. A preserved external checkpoint is needed to detect wholesale rollback of an old valid database copy.
 

@@ -16,6 +16,20 @@ from reportlab.pdfbase.pdfmetrics import registerFontFamily
 from .audit import canonical, verify
 from .prompt_loop import PromptLoopEngine
 
+def retained_coverage_gaps(events):
+    """Latest state per signed gap; absence in legacy exports proves nothing."""
+    gaps = {}
+    for event in events:
+        if event['kind'] in ('coverage_gap_opened', 'coverage_gap_updated', 'coverage_gap_closed'):
+            gap = event['data']
+            gaps[gap['gap_id']] = dict(gap)
+        elif event['kind'] == 'interrupted':
+            for gap in gaps.values():
+                if gap['ended_at'] is None:
+                    gap.update(ended_at=event['time'], duration_seconds=None,
+                               end_reason='worker_interrupted')
+    return list(gaps.values())
+
 def retained_observations(events):
     """Unique observations for the report, with legacy sample-only fallback.
 
@@ -36,6 +50,41 @@ def retained_observations(events):
             signal["last_observed_event_at"] = event["time"]
             signals[signal["id"]] = signal
     return signals
+
+
+def retained_policy_interpretations(events):
+    """Read signed sample decisions; never reinterpret old evidence with new rules."""
+    decisions = {}
+    for event in events:
+        if event['kind'] != 'sample':
+            continue
+        for result in event['data']['results']:
+            for signal in result['signals']:
+                policy = signal['evidence'].get('session_policy')
+                if not policy or policy.get('disposition') not in ('allowed', 'identity_review', 'pending_review'):
+                    continue
+                key = (signal['id'], policy['revision'], policy.get('interpretation_version', 1),
+                       policy['disposition'], signal['weight'])
+                if key not in decisions:
+                    decisions[key] = {'signal_id': signal['id'], 'process': signal['evidence'].get('process', ''),
+                                      'policy': dict(policy), 'weight': signal['weight'],
+                                      'first_recorded_at': event['time']}
+                decisions[key]['last_recorded_at'] = event['time']
+    return list(decisions.values())
+
+
+def retained_source_groups(events):
+    """Read recorded associations; never invent links for historical evidence."""
+    groups = {}
+    for event in events:
+        recorded = (event['data'].get('groups', []) if event['kind'] == 'source_groups' else
+                    event['data'].get('review_groups', []) if event['kind'] == 'sample' else [])
+        for group in recorded:
+            key = (group['source_ref'], tuple(group['signal_ids']))
+            if key not in groups:
+                groups[key] = {**group, 'first_recorded_at': event['time']}
+            groups[key]['last_recorded_at'] = event['time']
+    return list(groups.values())
 
 
 def _register_fonts():
@@ -139,9 +188,52 @@ def render_report(bundle, synthetic=False, prompt_loop_summary=None):
     table=Table(overview,colWidths=[44*mm,44*mm,43*mm,43*mm])
     table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#edf5f3')),('BOX',(0,0),(-1,-1),.5,colors.HexColor('#bdd5cf')),('TOPPADDING',(0,0),(-1,-1),9),('BOTTOMPADDING',(0,0),(-1,-1),9)]))
     story += [Spacer(1,10),table,p("The index is an uncalibrated technical heuristic, not a misconduct probability. Missing checks are unknown. Eye position and answer timing never change the index.","small"),p("Candidate choices and privacy","h")]
-    selected=[key for key,value in session["consent"].items() if value is True and key in ('processes','windows','displays','audio_devices','extensions','gaze')]
+    selected=[key for key,value in session["consent"].items() if value is True and key in ('processes','windows','displays','audio_devices','extensions','gaze','remote_sessions')]
     story += [p("Selected scopes: "+", ".join(selected)),p("No keystrokes, passwords, desktop images, browser history, microphone audio or system audio were recorded. The optional pre-flight preview may open a local microphone level meter and camera preview; none of that preview data is saved or sent to the worker. Session camera frames are discarded locally; retained camera metadata can include eye-position consistency, quality/calibration statistics, lighting, face count and multiple-face observations. Matching metadata, aggregates and candidate notes are retained in the local session log for 24 hours; exported copies have their own retention.")]
     story.append(p("Recorded disclosure version: " + session["consent"].get("version", "legacy / unspecified"), "small"))
+    if latest['score'].get('version') == 2:
+        story.append(p('Index version 2: each detector contributes its strongest observation. Where those observations share a supported Windows process-instance reference, only the larger deduction is applied. Other associations remain unknown; separate deductions do not establish separate incidents.', 'small'))
+    else:
+        story.append(p('Legacy index method: the recorded value is preserved without recalculating historical observations or inferring source associations.', 'small'))
+    policies = [e for e in events if e['kind'] == 'session_policy']
+    if policies:
+        story.append(p('Agreed session rules and changes', 'h'))
+        story.append(p('These rules are candidate declarations with unverified independent approval. Interpretation version 3 retains all original index weights; exceptions remain pending human review. Earlier interpretations (versions 1 and 2) may have applied name exceptions and are preserved as recorded. Desktop monitor counts can be compared with a declared limit, but mirrored physical screens and concealed hardware remain unknown.', 'small'))
+        for event in policies:
+            policy = event['data']
+            apps = policy['allowed_apps'] + policy['phase_apps'].get(policy['phase'], [])
+            story.append(p(f"{event['time']} | Revision {policy['revision']} | Phase: {policy['phase']} | Approval: {policy.get('approval_status', 'not recorded')} | Declared permitted applications: {', '.join(apps) or 'none specified'}", 'small'))
+            story.append(p(f"Declared display limit: {policy['max_displays'] or 'not specified'}. Agreed context: {policy['context'] or 'none'}", 'small'))
+        story.append(p('The technical index in this report reflects the policy revision recorded with the final sample; later rule changes do not rewrite earlier evidence.', 'small'))
+    imports = [e for e in events if e['kind'] == 'extension_inventory_imported']
+    if imports:
+        story.append(p('Browser inventory provenance claims', 'h'))
+        story.append(p('Candidate-supplied files cover one declared profile. Checksums and session binding detect inconsistent files, not fabricated content or browser authenticity. Freshness expires after five minutes; legacy imports do not establish current coverage.', 'small'))
+        for event in imports:
+            data = event['data']
+            story.append(p(f"Imported: {data.get('imported_at', event['time'])} | Claimed export: {data.get('exported_at')} | Browser/profile: {data.get('browser', 'unknown')} / {data.get('profile', 'unknown')} | Session bound: {data.get('session_bound', False)} | Checksum checked: {data.get('checksum_verified', False)}", 'small'))
+    story.append(p('Observation limits', 'h'))
+    story.append(p('Active browser/editor assistance, third-party remote control, per-app audio listeners, and external phones or concealed hardware may be unobservable. Polling is not continuous capture. A signed record establishes retained-record consistency, not absence of assistance or truth of candidate declarations.', 'small'))
+    decisions = retained_policy_interpretations(events)
+    if decisions:
+        story.append(p('Recorded application policy interpretations', 'h'))
+        story.append(p('These are decisions retained in signed samples, not proof of application identity or continuous activity. Metadata can be changed and broad matches can describe legitimate software. Human review is required.', 'small'))
+        for decision in decisions:
+            policy = decision['policy']
+            disposition = ('identity review required; original index weight retained'
+                           if policy['disposition'] == 'identity_review' else 'approval unverified; exception pending human review; original weight retained'
+                           if policy['disposition'] == 'pending_review' else 'legacy name exception applied; excluded from index')
+            story.append(p(f"{decision['process']} | Revision {policy['revision']} | Phase: {policy['phase']} | "
+                           f"interpretation {policy.get('interpretation_version', 1)} | {disposition}.", 'small'))
+            story.append(p(f"Observation {decision['signal_id']} | First recorded: {decision['first_recorded_at']} | "
+                           f"Last recorded: {decision['last_recorded_at']}", 'small'))
+    groups = retained_source_groups(events)
+    if groups:
+        story.append(p('Related observations by OS process', 'h'))
+        story.append(p('These sampled observations share a Windows process instance. References are randomized per consented session; raw process IDs and creation times are not retained. This does not authenticate software, prove simultaneous activity or establish intent. Browser/audio associations are not inferred.', 'small'))
+        for group in groups:
+            story.append(p(f"Source {group['source_ref']} | Detectors: {', '.join(group['detectors'])} | Observations: {', '.join(group['signal_ids'])}", 'small'))
+            story.append(p(f"First recorded: {group['first_recorded_at']} | Last recorded: {group['last_recorded_at']}. These are record times, not continuous-activity durations.", 'small'))
     story.append(p("Detector coverage at the final available sample","h"))
     if latest["results"]:
         rows=[[p("DETECTOR","small"),p("STATUS / LIMITATION","small")]]
@@ -151,6 +243,19 @@ def render_report(bundle, synthetic=False, prompt_loop_summary=None):
         table.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LINEBELOW',(0,0),(-1,-1),.4,colors.HexColor('#dce5e8')),('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),6)]))
         story.append(table)
     else: story.append(p("No detector samples were retained. Do not interpret this as a clean result."))
+    gaps = retained_coverage_gaps(events)
+    story.append(p("Recorded coverage gaps", "h"))
+    story.append(p("Gap boundaries describe observed availability, not exact failure times. Missing measurements are unknown and do not change the index.", "small"))
+    if not gaps:
+        story.append(p("No explicit gap intervals were retained. Legacy exports may not track gaps; this does not establish continuous coverage."))
+    for gap in gaps:
+        ending = ("Measurements resumed" if gap['end_reason'] == 'measurements_resumed'
+                  else "Worker interruption detected on restart; exact duration unknown" if gap['end_reason'] == 'worker_interrupted'
+                  else "Monitoring stopped without established recovery" if gap['ended_at']
+                  else "Still unavailable at export")
+        duration = f"{gap['duration_seconds']}s" if gap['duration_seconds'] is not None else "ongoing / unknown"
+        story.append(p(f"{gap['detector']} ({gap['scope']}): {gap['started_at']} to {gap['ended_at'] or 'open'} | {duration}", "small"))
+        story.append(p(f"{gap['status']}: {gap['detail']} {ending}.", "small"))
     observation_heading = p("Observations and alternative explanations","h")
     if not signals:
         story.append(KeepTogether([observation_heading,p("No matching observations were retained in the signed record.")]))
@@ -169,6 +274,9 @@ def render_report(bundle, synthetic=False, prompt_loop_summary=None):
             story.append(p(f"{data['time']} | {data['title']} - {data['detail']}","small"))
         elif event["kind"] in ("stopped","interrupted"):
             story.append(p(f"{event['time']} | {event['kind']} - {event['data']['reason']}","small"))
+            if event['kind'] == 'interrupted' and 'last_recorded_at' in event['data']:
+                story.append(p(f"Last recorded event: {event['data']['last_recorded_at'] or 'unknown'}. "
+                               "Interruption detected on restart; the exact failure time and outage duration are unknown.", "small"))
     from reportlab.graphics.barcode import qr
     from reportlab.graphics.shapes import Drawing, Group
     attest_payload = canonical({"id": session["id"], "pk": bundle["public_key"], "head": manifest["head"]})

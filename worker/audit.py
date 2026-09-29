@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 import sqlite3
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -116,6 +118,8 @@ else:
 
 class AuditStore:
     def __init__(self, directory):
+        self.run_id = str(uuid.uuid4())
+        self.run_started = time.monotonic()
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         if os.name != "nt":
@@ -152,7 +156,13 @@ class AuditStore:
         self.db.executescript((Path(__file__).parent.parent / "schema.sql").read_text())
         with self.db:
             for row in self.db.execute("SELECT id FROM sessions WHERE status='active'").fetchall():
-                self.append(row["id"], "interrupted", {"reason": "Worker restarted; observations may be missing"})
+                tail = self.db.execute("SELECT payload_json FROM events WHERE session_id=? ORDER BY sequence DESC LIMIT 1",
+                                       (row["id"],)).fetchone()
+                last_recorded = json.loads(tail["payload_json"]).get("time") if tail else None
+                self.append(row["id"], "interrupted", {
+                    "reason": "Worker restarted; observations may be missing. Fresh consent is required.",
+                    "last_recorded_at": last_recorded, "detected_at": now(),
+                    "duration_seconds": None, "boundary": "detected_on_restart"})
                 self.db.execute("UPDATE sessions SET status='interrupted',ended_at=? WHERE id=?", (now(), row["id"]))
                 self._seal(row["id"])
             self.db.execute("DELETE FROM sessions WHERE expires_at < ?", (now(),))
@@ -172,7 +182,13 @@ class AuditStore:
         tail = self.db.execute("SELECT sequence,event_hash FROM events WHERE session_id=? ORDER BY sequence DESC LIMIT 1",
                                (session_id,)).fetchone()
         sequence, previous = (tail["sequence"] + 1, tail["event_hash"]) if tail else (1, "0" * 64)
-        payload = canonical({"time": now(), "kind": kind, "data": data})
+        # Additive envelope: legacy hash/signature format is unchanged. Run
+        # clocks cannot be compared across worker restarts or used as wall time.
+        payload = canonical({"event_version": 1, "event_id": f"{session_id}:{sequence}",
+                             "session_id": session_id, "sequence": sequence,
+                             "run_id": self.run_id,
+                             "monotonic_ms": round(max(0, time.monotonic() - self.run_started) * 1000),
+                             "time": now(), "kind": kind, "data": data})
         hashed = digest(session_id, sequence, previous, payload)
         with self.db:
             self.db.execute("INSERT INTO events VALUES(?,?,?,?,?)", (session_id, sequence, payload, previous, hashed))
@@ -233,4 +249,3 @@ class AuditStore:
         row = self.db.execute("SELECT event_hash FROM events WHERE session_id=? ORDER BY sequence DESC LIMIT 1",
                               (session_id,)).fetchone()
         return row["event_hash"] if row else ("0" * 64)
-

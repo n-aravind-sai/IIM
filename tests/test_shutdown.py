@@ -26,6 +26,14 @@ class ResponsiveNative:
         self.calls += 1
         return Result(self.name, 'partial', 'Fixture', metrics={'calls': self.calls})
 
+
+class ContextNative:
+    name, scope = 'ProcessDetector', 'processes'
+    def scan(self, context):
+        return Result(self.name, 'partial', 'Fixture', metrics={
+            'has_link_key': isinstance(context.get('process_link_key'), bytes),
+            'has_inventory': 'extensions' in context})
+
 class BlockingDetector:
     name, scope = 'ProcessDetector', 'processes'
     def __init__(self):
@@ -109,11 +117,21 @@ class ShutdownTests(unittest.TestCase):
         self.assertTrue(self.engine.active)
 
 class SubprocessTests(unittest.TestCase):
+    def test_collector_receives_only_private_link_context_for_supported_scopes(self):
+        for scope in ('processes', 'audio_devices'):
+            probe = NativeProbe(ContextNative)
+            probe.scope = scope
+            try:
+                result = probe.scan({'process_link_key': b'a' * 32, 'extensions': ['private inventory']})
+                self.assertEqual(result.metrics['has_link_key'], scope == 'processes')
+                self.assertFalse(result.metrics['has_inventory'])
+            finally:
+                probe.close()
     def test_production_registry_isolates_native_scopes(self):
         from worker.detectors import registry
         detectors = registry()
         self.assertEqual({d.scope for d in detectors if isinstance(d, NativeProbe)},
-                         {'processes', 'windows', 'audio_devices', 'displays'})
+                         {'processes', 'windows', 'audio_devices', 'displays', 'remote_sessions'})
         with tempfile.TemporaryDirectory() as directory:
             engine = Engine(directory)
             try:

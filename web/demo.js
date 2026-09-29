@@ -1,5 +1,5 @@
-const names = ['OverlayDetector','ProcessDetector','AudioCaptureDetector','GazeDetector','VirtualDisplayDetector','BrowserExtensionDetector'];
-const scopes = ['windows','processes','audio_devices','gaze','displays','extensions'];
+const names = ['OverlayDetector','ProcessDetector','AudioCaptureDetector','GazeDetector','VirtualDisplayDetector','BrowserExtensionDetector','RemoteSessionDetector'];
+const scopes = ['windows','processes','audio_devices','gaze','displays','extensions','remote_sessions'];
 const emptyScore = {value:null,coverage:0,label:'Insufficient coverage',badge:'INSUFFICIENT_COVERAGE'};
 export function demoClient(onSnapshot) {
   let state = {session_id:null,active:false,consent:{},results:[],history:[],timeline:[],score:emptyScore,elapsed_seconds:0};

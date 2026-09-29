@@ -1,9 +1,11 @@
 import hashlib
 import json
+import platform
 import time
 from pathlib import Path
 from . import native
 from .models import Signal, Result
+from .correlation import source_for_process
 
 
 def signal(detector, kind, title, confidence, weight, evidence, explanation, limitation):
@@ -30,7 +32,8 @@ class ProcessDetector(Detector):
         self.rules = json.loads((Path(__file__).with_name("rules.json")).read_text())
 
     def scan(self, context):
-        procs = native.processes()
+        key = context.get('process_link_key')
+        procs = native.processes(include_instance=isinstance(key, bytes) and len(key) == 32)
         signals = []
         for p in procs:
             pname = p["name"].casefold().removesuffix(".exe")
@@ -38,24 +41,32 @@ class ProcessDetector(Detector):
             orig = meta.get("OriginalFilename", "").casefold().removesuffix(".exe")
             desc = meta.get("FileDescription", "").casefold()
             prod = meta.get("ProductName", "").casefold()
+            source = source_for_process(p.get('pid'), p.get('creation_time'), key)
+            link = {'source': source} if source else {}
 
             for rule in self.rules:
                 rule_names = set(rule["names"])
                 if pname in rule_names:
+                    evidence = {"process": pname, "category": rule["category"], **link}
+                    explanation = "An application with this executable name is running."
+                    # Keep conflicts even when both names belong to the same
+                    # rule; a name match must not discard the metadata match.
+                    if orig and orig != pname and orig in rule_names:
+                        evidence["original_filename"] = orig
+                        explanation += " Its internal original filename differs and also matches this review rule."
                     signals.append(signal(
                         self.name, "name_match", "Application name matches a review rule",
-                        0.65, rule["weight"], {"process": pname, "category": rule["category"]},
-                        "An application with this executable name is running.",
-                        "Name-only match: it can be renamed, spoofed, or used for an agreed accommodation. "
+                        0.65, rule["weight"], evidence, explanation,
+                        "Names and metadata are not authenticated identity; they can be changed or used for an agreed accommodation. "
                         "Presence does not demonstrate use during this interview."
                     ))
                 elif orig and orig in rule_names:
                     signals.append(signal(
                         self.name, "renamed_match", "Renamed application matches a review rule",
                         0.80, rule["weight"],
-                        {"process": pname, "original_filename": orig, "category": rule["category"]},
+                        {"process": pname, "original_filename": orig, "category": rule["category"], **link},
                         f"A running application '{pname}' has an internal binary filename '{orig}' matching review rules.",
-                        "The binary metadata matches despite being renamed. Presence does not establish active interview interaction."
+                        "Original-filename metadata is not authenticated identity and can be changed. Legitimate packages may use different filenames. Presence does not establish active interview interaction."
                     ))
                 elif any(rn in desc or rn in prod for rn in rule_names):
                     matched_kw = next((rn for rn in rule_names if rn in desc or rn in prod), "")
@@ -63,9 +74,9 @@ class ProcessDetector(Detector):
                     signals.append(signal(
                         self.name, "metadata_match", "Application metadata matches a review rule",
                         0.75, rule["weight"],
-                        {"process": pname, "matched_product": matched_label[:50], "category": rule["category"]},
+                        {"process": pname, "matched_product": matched_label[:50], "category": rule["category"], **link},
                         "The application's embedded file description or product metadata matches a review keyword.",
-                        "Metadata reflects vendor package descriptions; presence does not demonstrate interview interference."
+                        "Product metadata is not authenticated identity and can be changed. Broad keyword matches can describe legitimate packages; presence does not demonstrate interview interference."
                     ))
         deduped = list({s.id: s for s in signals}.values())
         return Result(self.name, "partial", "Executable names and binary metadata; no paths or arguments retained.", deduped)
@@ -80,21 +91,25 @@ class OverlayDetector(Detector):
         self.transitions = []
 
     def scan(self, context):
-        rows = native.windows()
+        key = context.get('process_link_key')
+        rows = native.windows(include_instance=isinstance(key, bytes) and len(key) == 32)
         signals = []
         overlay_ids = set()
         for row in rows:
+            source = source_for_process(row.get('pid'), row.get('creation_time'), key)
+            link = {'source': source} if source else {}
             combo = row["topmost"] and (row["layered"] or row["clickthrough"])
             if combo:
                 overlay_ids.add(row["id"])
                 # Window handles stay transient. Evidence contains only properties.
                 ev = {k: row[k] for k in ("topmost", "layered", "clickthrough", "alpha")}
+                ev.update(link)
                 signals.append(signal(self.name, "overlay", "Overlay-style window observed", .8, .5, ev,
                     "A visible window combines elevated stacking and overlay-like attributes.",
                     "Captions, accessibility tools, meeting controls and notifications can look identical."))
             if row["affinity"] in (1, 0x11):
                 signals.append(signal(self.name, "capture_affinity", "Capture-restricted window observed",
-                    .95, .65, {"affinity": row["affinity"]},
+                    .95, .65, {"affinity": row["affinity"], **link},
                     "The OS returned a capture-protection setting for a visible window.",
                     "A protection flag is legitimate for many applications. Query failures are unknown."))
         now = time.monotonic()
@@ -118,13 +133,34 @@ class AudioCaptureDetector(Detector):
         devices = native.audio_devices()
         signals = []
         for d in devices:
-            if any(word in d["name"].casefold() for word in
-                   ("blackhole", "soundflower", "loopback", "cable output", "stereo mix")):
+            label = d["name"].casefold()
+            if "stereo mix" in label:
+                signals.append(signal(self.name, "hardware_loopback", "Hardware loopback input available",
+                    .7, 0, {"device": d["name"], "classification": "hardware_loopback"},
+                    "The input name describes a hardware loopback facility. Informational only; excluded from index.",
+                    "Ordinary audio drivers expose this input. Installed does not mean active."))
+            elif any(word in label for word in ("blackhole", "soundflower", "loopback", "cable output")):
                 signals.append(signal(self.name, "routing_device", "Audio routing device available",
-                    .7, .2, {"device": d["name"]}, "An input device name suggests loopback or routing support.",
+                    .7, .2, {"device": d["name"], "classification": "virtual_routing"}, "An input device name suggests loopback or routing support.",
                     "Installed does not mean active. No audio is captured; listener conflicts and STT use are unknown."))
         return Result(self.name, "partial", "Input-device inventory only. Per-app audio capture is unsupported.",
                       signals, {"capture_conflicts": None, "audio_recorded": False})
+
+
+class RemoteSessionDetector(Detector):
+    name, scope = 'RemoteSessionDetector', 'remote_sessions'
+
+    def scan(self, context):
+        metadata = native.remote_session()
+        protocol = metadata['protocol']
+        signals = []
+        if protocol == 'rdp':
+            signals.append(signal(self.name, 'rdp_session', 'Current Windows session uses RDP', 1, 0,
+                metadata.copy(), 'Windows reports the RDP protocol for the session running this worker.',
+                'Remote interviews and managed desktops may legitimately use RDP. This does not identify another controller, other sessions or third-party remote tools. Excluded from index.'))
+        return Result(self.name, 'partial' if protocol in ('rdp', 'console') else 'waiting',
+                      f'Current Windows session protocol: {protocol}. Third-party control and other sessions remain unknown.',
+                      signals, metadata)
 
 
 class VirtualDisplayDetector(Detector):
@@ -136,8 +172,13 @@ class VirtualDisplayDetector(Detector):
                     .6, .4, {"label": d["label"]}, "An attached adapter has a mirror flag or matching device name.",
                     "This is a driver hint, not proof of a hidden monitor; legitimate remote desktop tools match.")
                    for d in devices if d["virtual_hint"]]
-        return Result(self.name, "partial", "Active display metadata only; concealed hardware is not detectable.",
-                      signals, {"active_displays": len(devices)})
+        try:
+            topology = native.display_topology()
+        except (OSError, ImportError, NotImplementedError):
+            topology = {'active_desktop_monitors': None, 'physical_monitor_count': None, 'source': 'unavailable'}
+        count = topology['active_desktop_monitors']
+        return Result(self.name, "partial", f"OS desktop monitors: {count if count is not None else 'unknown'}. Adapter hints are separate; mirrored physical displays and concealed hardware remain unknown.",
+                      signals, {"adapter_count": len(devices) if platform.system() == 'Windows' else None, **topology})
 
 
 class BrowserExtensionDetector(Detector):
@@ -155,7 +196,13 @@ class BrowserExtensionDetector(Detector):
                     .5, .4, {"extension": entry["name"], "source": "candidate_import"},
                     "A candidate-supplied enabled extension name matches a broad keyword.",
                     "Inventory is self-reported, may be stale or incomplete, and covers one browser profile."))
-        return Result(self.name, "partial", "Candidate-supplied inventory; no browser profiles are read.", signals)
+        metadata = context.get('extension_inventory', {})
+        expiry = context.get('extension_expires_tick')
+        fresh = metadata.get('session_bound') is True and expiry is not None and time.monotonic() < expiry
+        freshness = 'fresh_claim' if fresh else 'expired' if expiry is not None else 'unverified'
+        return Result(self.name, 'partial' if fresh else 'waiting',
+                      'Candidate-supplied inventory: ' + freshness + '. One declared profile only; browser authenticity and completeness remain unknown.',
+                      signals, {**metadata, 'freshness': freshness})
 
 
 def registry():
@@ -163,4 +210,4 @@ def registry():
     from .probes import NativeProbe
     return [NativeProbe(OverlayDetector), NativeProbe(ProcessDetector),
             NativeProbe(AudioCaptureDetector), GazeDetector(),
-            NativeProbe(VirtualDisplayDetector), BrowserExtensionDetector()]
+            NativeProbe(VirtualDisplayDetector), BrowserExtensionDetector(), NativeProbe(RemoteSessionDetector)]

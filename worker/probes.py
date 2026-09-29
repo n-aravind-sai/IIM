@@ -9,12 +9,12 @@ import time
 from .models import Result
 
 
-def _collect(pipe, detector_type):
+def _collect(pipe, detector_type, context=None):
     detector = detector_type()
     try:
         while pipe.recv() == 'scan':
             try:
-                result = detector.scan({})
+                result = detector.scan(context or {})
             except (ImportError, NotImplementedError):
                 result = Result(detector.name, 'unsupported', 'Required platform API or optional dependency is unavailable.')
             except Exception:
@@ -44,8 +44,12 @@ class NativeProbe:
             if self.process is None:
                 parent, child = mp.get_context('spawn').Pipe()
                 self.pipe = parent
+                # Only a private session key crosses this pipe, never inventories.
+                key = context.get('process_link_key')
+                probe_context = ({'process_link_key': key} if self.scope in ('processes', 'windows')
+                                 and isinstance(key, bytes) and len(key) == 32 else {})
                 self.process = mp.get_context('spawn').Process(
-                    target=_collect, args=(child, self.detector_type), daemon=True)
+                    target=_collect, args=(child, self.detector_type, probe_context), daemon=True)
                 try:
                     self.process.start()
                 except Exception:

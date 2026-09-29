@@ -4,6 +4,8 @@ Privacy-first desktop **developer prototype** for Windows and macOS. It collects
 
 **Latest code audit:** [Remaining fixes and verification](docs/audits/Remaining-Fixes-Report.md).
 
+**Current local enhancements:** [Foundation progress and verification](docs/foundation-progress.md) covers coordinated shutdown, signed coverage gaps, event identities, unverified session rules, inventory freshness, camera quality, display-count comparisons, optional Windows RDP protocol, shared process/window source grouping and the audio-classification correction. The [prioritized backlog](docs/prioritized-work-plan.md) tracks remaining work.
+
 **Release status:** runnable Python worker and browser development UI; Tauri/Rust desktop source is provided but has not been compiled on this environment. This is not a signed, standalone installer or a production-validated detector. Native Windows/macOS probes, camera accuracy, installer behavior and real interview performance require target-device validation. The advanced detection limits below are intentional and visible in the product.
 
 ## Quick start
@@ -30,7 +32,7 @@ python -m pip install -r requirements-native.txt
 python scripts/dev.py
 ```
 
-Open `http://127.0.0.1:1420` in your browser. Select **Start a session**, choose the monitoring scopes, accept the disclosure, then start. No session detector runs before acceptance. The separate **Preview camera & microphone** action opens local camera/microphone streams without recording or saving them; synthetic demo never opens devices. Camera consent (`iim-consent-2`) covers eye-position consistency, quality/calibration statistics, lighting, face count and multiple-face observations, all excluded from the index. Optional camera calibration needs at least 50 stable valid samples, approximately 10 seconds at the configured 5 FPS, and can take longer or fail.
+Open `http://127.0.0.1:1420` in your browser. Select **Start a session**, choose the monitoring scopes, accept the disclosure, then start. No session detector runs before acceptance. The separate **Preview camera & microphone** action opens local camera/microphone streams without recording or saving them; synthetic demo never opens devices. Camera consent (`iim-consent-4`) covers eye-position consistency, quality/calibration statistics, lighting, face count and multiple-face observations, all excluded from the index. Optional camera calibration needs at least 50 stable valid samples, approximately 10 seconds at the configured 5 FPS, and can take longer or fail.
 
 If optional native packages are unavailable, install `requirements.txt`. Core sessions, exports, audit verification and development process enumeration remain usable; unavailable detectors are labelled explicitly.
 
@@ -103,11 +105,12 @@ Stop the separate browser-development launcher before starting desktop developme
 | Hidden GPU overlays / compositor tampering | Explicitly unsupported | No hooks, injection, drivers or renderer introspection |
 | Suspicious processes | Configurable exact executable-name matches | Rename/spoofing, browser-based tools and actual use cannot be established |
 | Audio conflicts / multiple listeners / STT | Device-name inventory and process-name hints only | **No actual listener attribution or conflict detection**; the inventory detector opens no audio; optional pre-flight microphone preview is local and never recorded |
-| Virtual / hidden displays | Active-adapter metadata; limited Windows name/flag hints | No reliable hidden-hardware detection; macOS virtual attribution unknown |
-| Browser extensions | Candidate-reviewed companion export/import | One profile; self-reported; no assertion of freshness or completeness |
+| Virtual / hidden displays | Separate Windows desktop monitor and adapter counts; declared-limit review observations | Mirrored physical targets and hidden hardware remain unknown; macOS topology/virtual attribution unverified |
+| Browser extensions | Session-bound v3 imports with five-minute expiry and browser/profile labels | One declared profile; editable claims; no browser authenticity or completeness guarantee |
+| Remote sessions | Separately consented Windows current-session console/RDP protocol | No third-party control, other-session or active-controller attribution; excluded from index |
 | Gaze / eye drift | Experimental calibrated horizontal eye-position consistency | Not robust gaze direction, attention, reading, emotion or intent detection |
 | Answer latency | Manual question-end / answer-start markers | Not automatic; no robotic-response or AI-speech classifier |
-| Trust score | Transparent technical heuristic with separate coverage | Not a validated probability; no hiring decision or candidate ranking |
+| Trust score | Versioned technical heuristic with separate coverage and supported process/window de-duplication | Not a validated probability; no hiring decision or candidate ranking |
 | Screenshot integrity | Offline file digest helper | Proves equality to trusted reference bytes only, not capture completeness |
 | Secure browser | Minimal inventory companion | No kiosk lockdown, browsing surveillance or browser attestation |
 | Anti-tamper | Signed, chained logs checked before append/export | A hostile device owner can patch the app or steal the local signing key |

@@ -12,9 +12,9 @@ from collections import deque
 from .models import Result
 
 
-def aggregate(samples, baseline):
+def aggregate(samples, baseline, current_usable=True):
     valid = [s for s in samples if s is not None]
-    if baseline is None or len(valid) < 10 or len(valid) / max(len(samples), 1) < .6:
+    if not current_usable or baseline is None or len(valid) < 10 or len(valid) / max(len(samples), 1) < .6:
         return {"consistency": None, "quality": "insufficient", "valid_samples": len(valid)}
     drift = [abs(x - baseline) > .09 for x in valid]
     return {"consistency": round(100 * (1 - sum(drift) / len(valid))),
@@ -43,6 +43,7 @@ def camera_loop(pipe):
                 break
             started = time.monotonic()
             ok, frame = cap.read()
+            captured_tick = time.monotonic()
             value = None
             lighting = "normal"
             secondary_person = False
@@ -93,12 +94,13 @@ def camera_loop(pipe):
                         baseline = float(np.median(calibration))
                     else:
                         calibration.clear()
-            metrics = aggregate(samples, baseline)
+            metrics = aggregate(samples, baseline, current_usable=value is not None and lighting == 'normal')
             metrics["calibrated"] = baseline is not None
             metrics["calibration_samples"] = len(calibration)
             metrics["lighting"] = lighting
             metrics["secondary_person"] = secondary_person
             metrics["faces_count"] = faces_count
+            metrics['_captured_tick'] = captured_tick  # Transport-only; never retained as camera evidence.
             pipe.send(metrics)
             time.sleep(max(0, .2 - (time.monotonic() - started)))
     except Exception:
@@ -150,7 +152,11 @@ class GazeDetector:
                     if not self.pipe.poll():
                         break
                     self.latest = self.pipe.recv()
-                    self.last_update = time.monotonic()
+                    captured_tick = self.latest.pop('_captured_tick', None)
+                    if 'error' not in self.latest:
+                        if type(captured_tick) not in (int, float) or not 0 <= time.monotonic() - captured_tick <= 3:
+                            return self._fail('Camera measurements are stale or undated. Start a new session to retry.')
+                        self.last_update = captured_tick
             except (EOFError, OSError):
                 return self._fail("Camera connection closed. Start a new session to retry.")
         if "error" in self.latest or not self.process.is_alive():
@@ -170,7 +176,11 @@ class GazeDetector:
                 "More than one face was visible in the camera field of view.",
                 "Passersby, colleagues, or family members may enter the camera frame. Excluded from index."
             ))
-        return Result(self.name, "partial", "Experimental eye-position consistency; excluded from score.",
+        usable = (self.latest.get('calibrated') is True and self.latest.get('quality') == 'experimental'
+                  and isinstance(self.latest.get('consistency'), (int, float)))
+        detail = ("Experimental eye-position consistency; excluded from score." if usable else
+                  "Camera stream is responding, but usable eye measurements are unavailable: calibration, visibility or sample quality is insufficient. Excluded from score.")
+        return Result(self.name, "partial" if usable else "waiting", detail,
                       signals=signals, metrics=self.latest.copy())
 
 

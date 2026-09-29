@@ -39,7 +39,35 @@ def get_pe_metadata(filepath):
         return {}
 
 
-def processes():
+def _creation_time(api, handle):
+    from ctypes import wintypes as w
+    api.GetProcessTimes.argtypes = [w.HANDLE] + [ctypes.POINTER(w.FILETIME)] * 4
+    api.GetProcessTimes.restype = w.BOOL
+    created, exited, kernel, user = w.FILETIME(), w.FILETIME(), w.FILETIME(), w.FILETIME()
+    if not api.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)):
+        return None
+    return ((created.dwHighDateTime << 32) | created.dwLowDateTime) or None
+
+
+def process_creation_time(pid):
+    """Transient Windows process-instance metadata; unavailable is never PID-only identity."""
+    if platform.system() != 'Windows' or type(pid) is not int or pid <= 0:
+        return None
+    from ctypes import wintypes as w
+    api = ctypes.WinDLL('kernel32', use_last_error=True)
+    api.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    api.OpenProcess.restype = w.HANDLE
+    api.CloseHandle.argtypes = [w.HANDLE]
+    handle = api.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return None
+    try:
+        return _creation_time(api, handle)
+    finally:
+        api.CloseHandle(handle)
+
+
+def processes(include_instance=False):
     system = platform.system()
     if system == "Windows":
         from ctypes import wintypes as w
@@ -72,6 +100,7 @@ def processes():
                 raise OSError("Process enumeration unavailable")
             while ok:
                 meta = {}
+                created = None
                 if entry.pid > 4:
                     h_proc = k.OpenProcess(0x1000, False, entry.pid)
                     if h_proc:
@@ -80,11 +109,14 @@ def processes():
                             img_size = w.DWORD(1024)
                             if k.QueryFullProcessImageNameW(h_proc, 0, img_buf, ctypes.byref(img_size)):
                                 meta = get_pe_metadata(img_buf.value)
+                                # The same open handle supplies image identity and creation time.
+                                if include_instance and Path(img_buf.value).name.casefold() == entry.name.casefold():
+                                    created = _creation_time(k, h_proc)
                         except Exception:
                             pass
                         finally:
                             k.CloseHandle(h_proc)
-                out.append({"pid": entry.pid, "name": entry.name, "metadata": meta})
+                out.append({"pid": entry.pid, "name": entry.name, "metadata": meta, 'creation_time': created})
                 ok = k.Process32NextW(handle, ctypes.byref(entry))
         finally:
             k.CloseHandle(handle)
@@ -105,7 +137,7 @@ def processes():
     return out
 
 
-def windows():
+def windows(include_instance=False):
     system = platform.system()
     if system == "Windows":
         from ctypes import wintypes as w
@@ -134,10 +166,15 @@ def windows():
             alpha_ok = u.GetLayeredWindowAttributes(hwnd, ctypes.byref(color),
                                                      ctypes.byref(alpha), ctypes.byref(flags))
             affinity_ok = u.GetWindowDisplayAffinity(hwnd, ctypes.byref(affinity))
+            created = process_creation_time(pid.value) if include_instance else None
+            if created is not None:
+                current_pid = w.DWORD()
+                if not u.GetWindowThreadProcessId(hwnd, ctypes.byref(current_pid)) or current_pid.value != pid.value:
+                    created = None  # Window disappeared or ownership changed during the query.
             out.append({"id": str(hwnd), "pid": pid.value, "topmost": bool(style & 8),
                         "layered": bool(style & 0x80000), "clickthrough": bool(style & 0x20),
                         "alpha": alpha.value / 255 if alpha_ok and flags.value & 2 else None,
-                        "affinity": affinity.value if affinity_ok else None})
+                        "affinity": affinity.value if affinity_ok else None, 'creation_time': created})
             return True
         if not u.EnumWindows(callback, 0):
             raise OSError("Window enumeration unavailable")
@@ -183,6 +220,45 @@ def displays():
         return [{"label": "Built-in display" if q.CGDisplayIsBuiltin(i) else "External display",
                  "virtual_hint": None} for i in list(ids)[:count]]
     raise NotImplementedError("Display metadata requires Windows or macOS")
+
+
+def display_topology():
+    """OS desktop monitors, not physical targets (mirroring can conceal targets)."""
+    if platform.system() != 'Windows':
+        raise NotImplementedError('Desktop topology count is not implemented on this platform')
+    u = ctypes.WinDLL('user32', use_last_error=True)
+    u.GetSystemMetrics.argtypes = [ctypes.c_int]
+    u.GetSystemMetrics.restype = ctypes.c_int
+    count = u.GetSystemMetrics(80)  # SM_CMONITORS excludes mirroring pseudo-monitors.
+    if count < 1:
+        raise OSError('Desktop monitor count unavailable')
+    return {'active_desktop_monitors': count, 'physical_monitor_count': None,
+            'source': 'GetSystemMetrics(SM_CMONITORS)'}
+
+
+def remote_session():
+    """Read only the current worker session's protocol, without names or addresses."""
+    if platform.system() != 'Windows':
+        raise NotImplementedError('Current-session protocol requires Windows')
+    from ctypes import wintypes as w
+    api = ctypes.WinDLL('wtsapi32', use_last_error=True)
+    query = api.WTSQuerySessionInformationW
+    query.argtypes = [w.HANDLE, w.DWORD, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.DWORD)]
+    query.restype = w.BOOL
+    api.WTSFreeMemory.argtypes = [ctypes.c_void_p]
+    api.WTSFreeMemory.restype = None
+    buffer, size = ctypes.c_void_p(), w.DWORD()
+    # WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSClientProtocolType.
+    if not query(None, 0xffffffff, 16, ctypes.byref(buffer), ctypes.byref(size)):
+        raise OSError('Current-session protocol unavailable')
+    try:
+        if not buffer.value or size.value < ctypes.sizeof(ctypes.c_ushort):
+            raise OSError('Current-session protocol response incomplete')
+        protocol = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ushort)).contents.value
+        return {'protocol': {0: 'console', 2: 'rdp'}.get(protocol, 'unknown'),
+                'scope': 'current_session', 'third_party_control': 'unknown'}
+    finally:
+        api.WTSFreeMemory(buffer)
 
 
 def audio_devices():

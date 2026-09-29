@@ -21,9 +21,10 @@ class CameraTimeoutTests(unittest.TestCase):
         self.assertEqual(result.status,'waiting');process.terminate.assert_not_called()
     def test_first_measurement_removes_startup_deadline(self):
         camera,process,pipe=self.camera()
-        pipe.poll.side_effect=[True,False];pipe.recv.return_value={'quality':'experimental','calibrated':True,'consistency':80}
+        pipe.poll.side_effect=[True,False];pipe.recv.return_value={'quality':'experimental','calibrated':True,'consistency':80,'_captured_tick':109}
         with patch('worker.gaze.time.monotonic',return_value=109):result=camera.scan({})
         self.assertEqual(result.status,'partial')
+        self.assertNotIn('_captured_tick', result.metrics)
         pipe.poll.side_effect=None;pipe.poll.return_value=False
         with patch('worker.gaze.time.monotonic',return_value=111):result=camera.scan({})
         self.assertEqual(result.status,'partial');process.terminate.assert_not_called()

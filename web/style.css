@@ -28,3 +28,7 @@
 .attest-details{display:flex;flex-direction:column;gap:10px}
 .attest-field label{display:block;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px}
 .attest-field code{display:block;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;background:rgba(255,255,255,0.04);border:1px solid var(--line);border-radius:4px;padding:4px 6px;word-break:break-all;color:var(--ink);max-height:48px;overflow-y:auto}
+/* Session-policy controls reuse the dashboard's dark surfaces and spacing. */
+.policy-fields{display:grid;gap:9px;margin:20px 0}.policy-fields label{font-size:12px;color:#d2dde5}.policy-fields input,.policy-fields select,.policy-fields textarea{box-sizing:border-box;width:100%;min-width:0;padding:10px;background:#10171e;color:#d2dde5;border:1px solid #34424f;border-radius:6px;font:inherit}.policy-fields p{margin:0 0 8px}.policy-fields input:focus,.policy-fields select:focus,.policy-fields textarea:focus{outline:2px solid #68dbc1;outline-offset:2px}#policy-summary{overflow-wrap:anywhere}#policy-btn{margin-top:10px}.session-strip+.notice{margin-bottom:20px}
+
+#inventory-session{display:block;width:100%;margin:8px 0;padding:10px;border:1px solid var(--line);border-radius:6px;background:#10171e;color:var(--text);font-size:12px}

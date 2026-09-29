@@ -6,10 +6,20 @@ from worker.inventory import checksum, clean_entries, validate_inventory
 from worker.engine import Engine, DISCLOSURE
 
 class InventoryTests(unittest.TestCase):
-    def export(self, rows):
+    def export(self, rows, scope=None):
         return json.loads(subprocess.check_output(['node','--input-type=module','-e',
-            "import {exportInventory} from './companion/inventory.js'; let s='';for await(const c of process.stdin)s+=c; console.log(JSON.stringify(await exportInventory(JSON.parse(s))));"],
-            input=json.dumps(rows),encoding='utf-8'))
+            "import {exportInventory} from './companion/inventory.js'; let s='';for await(const c of process.stdin)s+=c; const [rows,scope]=JSON.parse(s); console.log(JSON.stringify(await exportInventory(rows,scope)));"],
+            input=json.dumps([rows,scope]),encoding='utf-8'))
+    def test_bound_companion_export_covers_unicode_scope_and_entries(self):
+        from worker.inventory import prepare_inventory
+        from worker.audit import now
+        data = self.export([{'name':'😀汉字', 'enabled':True}],
+                           {'session_id':'test-session', 'browser':'Chromium', 'profile':'Équipe 😀'})
+        self.assertEqual(data['format'], 'iim.extensions.v3')
+        rows, metadata, expiry = prepare_inventory(data, None, 'test-session', 10, now())
+        self.assertTrue(metadata['session_bound'])
+        self.assertLessEqual(expiry, 310)
+        self.assertEqual(rows[0]['name'], '😀汉字')
     def test_real_companion_exports_import_through_engine(self):
         cases = [['é'],['a','Z'],['😀','\ue000','汉字'],['same','same'],['x'*99+'😀'+'Z'],['\ud800','a\n"\\'],['\x7f','\u2028','\u2029']]
         with tempfile.TemporaryDirectory() as d:

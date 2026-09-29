@@ -28,7 +28,11 @@ class Service:
         if op == "snapshot":
             return self.engine.snapshot()
         if op == "start":
-            return await asyncio.to_thread(self.engine.start, args.get("consent"))
+            return await asyncio.to_thread(self.engine.start, args.get("consent"), args.get("policy"))
+        if op == "policy":
+            return await asyncio.to_thread(self.engine.update_policy, args.get("policy"),
+                                           args.get("expected_revision"), args.get("accepted"),
+                                           args.get("expected_session_id"))
         if op == "stop":
             return await asyncio.to_thread(self.engine.stop)
         if op == "heartbeat":
@@ -97,8 +101,10 @@ class Service:
 
     async def monitor(self):
         while not self.halt.is_set():
+            with self.engine.lock:
+                sampled_session = self.engine.session
             try:
-                snapshot = await asyncio.to_thread(self.engine.poll)
+                snapshot = await asyncio.to_thread(self.engine.poll, expected_session=sampled_session)
                 if self.owner is not None:
                     await self.send(self.owner, {"type": "snapshot", "snapshot": snapshot})
             except (ConnectionClosed, asyncio.TimeoutError):
@@ -106,10 +112,11 @@ class Service:
                     await self.owner.close()
             except Exception:
                 try:
-                    await asyncio.to_thread(self.engine.stop, "Integrity worker error; monitoring stopped")
+                    await asyncio.to_thread(self.engine.stop, "Integrity worker error; monitoring stopped",
+                                            expected_session=sampled_session)
                 except Exception:
                     pass
-                if self.owner is not None:
+                if self.owner is not None and self.engine.session == sampled_session:
                     await self.send(self.owner, {"type": "fatal", "error": "Monitoring stopped after a worker or audit error."})
             try:
                 await asyncio.wait_for(self.halt.wait(), timeout=2)
@@ -140,8 +147,16 @@ class Service:
             try:
                 await self.halt.wait()
             finally:
-                await asyncio.to_thread(self.engine.stop, "Desktop application closed")
-                await asyncio.gather(monitor, watchdog)
+                self.halt.set()
+                try:
+                    await asyncio.to_thread(self.engine.stop, "Desktop application closed")
+                finally:
+                    # Join both tasks even if cleanup or the terminal audit
+                    # fails. No task may access storage after run returns.
+                    outcomes = await asyncio.gather(monitor, watchdog, return_exceptions=True)
+                for outcome in outcomes:
+                    if isinstance(outcome, BaseException):
+                        raise outcome
 
 
 async def main():
