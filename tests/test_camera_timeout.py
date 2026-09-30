@@ -33,6 +33,64 @@ class CameraTimeoutTests(unittest.TestCase):
         with patch('worker.gaze.time.monotonic',return_value=109):result=camera.scan({})
         self.assertEqual(result.status,'error');self.assertIn('stale',result.detail)
         process.terminate.assert_called_once();pipe.close.assert_called_once()
+    def test_stale_queue_prefix_does_not_hide_fresh_camera_measurement(self):
+        from collections import deque
+        camera,process,pipe=self.camera()
+        # More than one normal polling batch accumulated while other probes ran.
+        queued=deque({'quality':'experimental','calibrated':True,'consistency':80,
+                      '_captured_tick':tick} for tick in [100] * 15 + [109.8])
+        pipe.poll.side_effect=lambda:bool(queued)
+        pipe.recv.side_effect=queued.popleft
+        with patch('worker.gaze.time.monotonic',return_value=110):result=camera.scan({})
+        self.assertEqual(result.status,'partial')
+        self.assertEqual(camera.last_update,109.8)
+        self.assertNotIn('_captured_tick',result.metrics)
+        self.assertFalse(camera.closed)
+        process.terminate.assert_not_called()
+
+    def test_only_stale_queued_measurements_still_close_camera(self):
+        camera,process,pipe=self.camera()
+        pipe.poll.side_effect=[True,True,False]
+        pipe.recv.side_effect=[{'_captured_tick':100},{'_captured_tick':105}]
+        with patch('worker.gaze.time.monotonic',return_value=110):result=camera.scan({})
+        self.assertEqual(result.status,'error')
+        process.terminate.assert_called_once()
+
+    def test_continuous_backlog_yields_unknown_coverage_and_remains_stoppable(self):
+        camera,process,pipe=self.camera()
+        pipe.poll.return_value=True
+        # Fail the test instead of hanging if the consumer drains without a bound.
+        pipe.recv.side_effect=[{'_captured_tick':100} for _ in range(1000)]
+        with patch('worker.gaze.time.monotonic',return_value=110):result=camera.scan({})
+        self.assertEqual(result.status,'waiting')
+        self.assertEqual(result.metrics,{})
+        self.assertFalse(camera.closed)
+        camera.close()
+        process.terminate.assert_called_once()
+
+    def test_backlog_larger_than_drain_budget_recovers_on_next_scan(self):
+        from collections import deque
+        camera,process,pipe=self.camera()
+        queued=deque({'_captured_tick':100} for _ in range(80))
+        queued.append({'_captured_tick':109.8,'quality':'experimental',
+                       'calibrated':True,'consistency':80})
+        pipe.poll.side_effect=lambda:bool(queued)
+        pipe.recv.side_effect=queued.popleft
+        with patch('worker.gaze.time.monotonic',return_value=110):
+            self.assertEqual(camera.scan({}).status,'waiting')
+            self.assertEqual(camera.scan({}).status,'partial')
+        self.assertFalse(camera.closed)
+        process.terminate.assert_not_called()
+
+    def test_newest_invalid_timestamp_is_not_hidden_by_older_valid_message(self):
+        for timestamp in (None,111,float('nan')):
+            with self.subTest(timestamp=timestamp):
+                camera,process,pipe=self.camera()
+                pipe.poll.side_effect=[True,True,False]
+                pipe.recv.side_effect=[{'_captured_tick':109},{'_captured_tick':timestamp}]
+                with patch('worker.gaze.time.monotonic',return_value=110):result=camera.scan({})
+                self.assertEqual(result.status,'error')
+                process.terminate.assert_called_once()
     def test_worker_error_closes_devices(self):
         camera,process,pipe=self.camera();camera.latest={'error':'Camera unavailable'}
         self.assertEqual(camera.scan({}).status,'error');process.terminate.assert_called_once()

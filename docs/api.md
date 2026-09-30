@@ -43,7 +43,9 @@ A signed `extension_inventory_imported` event retains export/import times, scope
 
 `remote_sessions` is a separate optional scope under disclosure `iim-consent-4`. Windows reads only the worker session's `WTSClientProtocolType` (console/RDP/unknown), without account names, addresses or other sessions. RDP observations have zero weight and do not contribute to the five-detector technical index. Other platforms, failed APIs and third-party remote-control attribution remain unknown.
 
-Camera stream delivery alone is not usable measurement coverage. Uncalibrated, currently unusable or low-quality eye samples remain `waiting`. Transport capture timestamps reject queued stale measurements; this does not authenticate physical-frame freshness or establish liveness.
+Camera stream delivery alone is not usable measurement coverage. Uncalibrated, currently unusable or low-quality eye samples remain `waiting`. Polling drains up to 64 queued metadata messages before checking the newest capture timestamp; a remaining backlog yields `waiting` without publishing old metrics. Once drained, stale or invalid final timestamps stop the camera. This does not authenticate physical-frame freshness or establish liveness.
+
+Display-limit assessments require usable, unexpired measurements. Expired or unavailable display counts yield `unknown`, with no current limit-exceeded observation. Previously recorded counts and observations remain in the signed history; a fresh scan restores the assessment.
 
 ### Supported process/window source association
 

@@ -95,6 +95,52 @@ class InventoryFreshnessTests(unittest.TestCase):
 
 
 class DisplayPolicyTests(unittest.TestCase):
+    def test_unusable_or_expired_display_count_cannot_assess_current_limit(self):
+        for status,freshness in [('waiting','expired'),('error',None),('disabled',None),
+                                 ('unsupported',None),('partial','expired')]:
+            for count in (1,2):
+                with self.subTest(status=status,freshness=freshness,count=count):
+                    raw=Result('VirtualDisplayDetector',status,'Count unavailable',
+                               metrics={'active_desktop_monitors':count,'freshness':freshness})
+                    reviewed=apply_policy([raw],normalize_policy({'max_displays':1}))[0]
+                    self.assertEqual(reviewed.metrics['declared_limit_assessment'],'unknown')
+                    self.assertEqual(reviewed.signals,[])
+                    self.assertEqual(raw.metrics['active_desktop_monitors'],count)
+                    self.assertNotIn('declared_limit_assessment',raw.metrics)
+
+    def test_expired_display_assessment_is_signed_unknown_then_recovers(self):
+        class Probe:
+            name,scope='VirtualDisplayDetector','displays'
+            count=2
+            def scan(self,context):
+                return Result(self.name,'partial','Fixture',metrics={'active_desktop_monitors':self.count})
+            def close(self): pass
+        probe=Probe()
+        with tempfile.TemporaryDirectory() as directory:
+            engine=Engine(directory,lambda:[probe])
+            try:
+                with patch('worker.engine.time.monotonic',return_value=100):
+                    engine.start({'accepted':True,'version':DISCLOSURE,'displays':True},{'max_displays':1})
+                    self.assertEqual(engine.poll()['results'][0]['metrics']['declared_limit_assessment'],
+                                     'exceeds_declared_limit')
+                with patch('worker.engine.time.monotonic',return_value=126):
+                    engine.heartbeat()
+                    engine.watchdog()
+                    result=engine.snapshot()['results'][0]
+                    self.assertEqual(result['metrics']['declared_limit_assessment'],'unknown')
+                    self.assertEqual(result['signals'],[])
+                    events=[json.loads(e['payload_json']) for e in engine.export()['events']]
+                    samples=[e['data'] for e in events if e['kind']=='sample']
+                    self.assertEqual(samples[-1]['results'][0]['metrics']['declared_limit_assessment'],'unknown')
+                    self.assertEqual(samples[0]['results'][0]['metrics']['declared_limit_assessment'],
+                                     'exceeds_declared_limit')
+                    probe.count=1
+                    current=engine.poll()['results'][0]
+                    self.assertEqual(current['metrics']['declared_limit_assessment'],'no_observed_excess')
+            finally:
+                engine.stop()
+                engine.store.db.close()
+
     def test_adapters_are_not_reported_as_monitors_and_declared_limit_is_review_only(self):
         with patch('platform.system', return_value='Windows'), \
                 patch('worker.detectors.native.displays', return_value=[{'label': 'GPU', 'virtual_hint': False}]), \

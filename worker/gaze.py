@@ -148,10 +148,23 @@ class GazeDetector:
                 child.close()
         if self.pipe:
             try:
-                for _ in range(10):
+                received = backlogged = False
+                # Other probes can delay polling. Drain past older frames before
+                # checking freshness, but bound the work while holding lifecycle.
+                for _ in range(64):
                     if not self.pipe.poll():
                         break
                     self.latest = self.pipe.recv()
+                    received = True
+                    if 'error' in self.latest:
+                        break
+                else:
+                    backlogged = self.pipe.poll()
+                if backlogged:
+                    self.latest.pop('_captured_tick', None)
+                    return Result(self.name, 'waiting',
+                                  'Camera measurement backlog; waiting for current measurements. Coverage is unknown.')
+                if received:
                     captured_tick = self.latest.pop('_captured_tick', None)
                     if 'error' not in self.latest:
                         if type(captured_tick) not in (int, float) or not 0 <= time.monotonic() - captured_tick <= 3:

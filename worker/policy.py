@@ -65,7 +65,9 @@ def apply_policy(results, policy):
         if result.detector == 'VirtualDisplayDetector' and policy.get('max_displays') is not None:
             count = result.metrics.get('active_desktop_monitors')
             maximum = policy['max_displays']
-            assessment = ('unknown' if type(count) is not int or count < 1
+            usable = (result.status in ('available', 'partial')
+                      and result.metrics.get('freshness') != 'expired')
+            assessment = ('unknown' if not usable or type(count) is not int or count < 1
                           else 'exceeds_declared_limit' if count > maximum else 'no_observed_excess')
             result.metrics.update(declared_limit=maximum, declared_limit_assessment=assessment,
                                   policy_approval='unverified')

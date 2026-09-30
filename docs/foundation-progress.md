@@ -1,6 +1,13 @@
-# Foundation implementation — 23–29 September 2026
+# Foundation implementation — 23–30 September 2026
 
 This pass implements the first foundation changes from [the prioritized work plan](prioritized-work-plan.md). It does not complete the 30-item roadmap or establish production detection accuracy.
+
+## Review fixes — 30 September
+
+- Camera polling now drains queued metadata before testing the newest measurement's capture time. Older queued messages no longer terminate a healthy camera when a current message follows them. Each scan consumes at most 64 messages; a remaining backlog yields unknown coverage and can recover on a subsequent scan. Genuine stale/invalid final measurements, worker errors and closed pipes still release the camera.
+- Display-policy comparisons now require usable, unexpired measurements. Expired or unavailable counts yield `unknown` without a new limit-exceeded observation. Raw counts and previously signed observations remain historical evidence; a fresh scan restores the current assessment.
+- Seven added regressions cover mixed-age queues, stale-only queues, invalid timestamps, bounded backlog handling/recovery, unavailable display results, and signed expiry/recovery without rewriting earlier samples. The defect reproductions failed before the fixes.
+- Validation: **185 Python tests run; 184 passed, 1 existing Poppler-dependent skip**. All **15 JavaScript tests** passed. Source checksums were refreshed. These checks use simulated camera metadata; physical-camera and native desktop acceptance remain release work.
 
 ## Source association and overlapping deductions — 29 September
 
