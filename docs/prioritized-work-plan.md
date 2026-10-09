@@ -6,6 +6,8 @@ This backlog consolidates the supplied scenario assessment, the local implementa
 
 Implementation has started. See [foundation progress and validation](foundation-progress.md) for delivered changes and remaining work per P0 item. The tables below retain the complete acceptance targets; a partially implemented item is not marked complete.
 
+The [9 October audit-branch review](audits/2026-10-09-branch-consolidation.md) preserves the older focus/device-count prototypes in Git history and records porting checks for P1-02, P1-04 and P0-06. These prototypes are not enabled on main.
+
 Review follow-ups are tracked in the progress document. By 28 September, metadata-preserving interpretation, explicit unverified policy approval, session-bound expiring inventories, stale-measurement gaps, Windows desktop-count comparisons, camera measurement-quality checks and a consented current-session RDP protocol collector are implemented. Browser/editor integrations, physical topology, third-party remote/audio attribution and the broader release gates remain open. On 29 September, supported Windows process/window source grouping and overlapping-deduction handling were added to P0-07. General episode duration and browser/audio attribution remain open. See the progress document for exact boundaries; the tables retain full acceptance targets.
 
 ## Priority and scope
