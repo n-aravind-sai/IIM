@@ -4,7 +4,9 @@ Not the live desktop worker. Run behind a TLS reverse proxy for remote use.
 One instance per tenant; do not expose the stdlib HTTP server publicly.
 """
 import hmac
+import io
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -15,7 +17,31 @@ from pathlib import Path
 from worker.audit import verify, canonical
 
 
-def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, read_token=None, trusted_keys=None, cleanup_interval=60):
+class DeadlineReader(io.RawIOBase):
+    """Bound the whole read phase, even if a peer keeps sending small chunks."""
+    def __init__(self, connection, seconds):
+        super().__init__()
+        self.connection = connection
+        self.deadline = time.monotonic() + seconds
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError('Request deadline exceeded')
+        self.connection.settimeout(min(5, remaining))
+        return self.connection.recv_into(buffer)
+
+
+def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, read_token=None, trusted_keys=None, cleanup_interval=60,
+                header_timeout=5, body_timeout=10, max_connections=32):
+    if any(not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
+           for value in (header_timeout, body_timeout)):
+        raise ValueError('Request deadlines must be finite positive seconds')
+    if type(max_connections) is not int or not 1 <= max_connections <= 256:
+        raise ValueError('max_connections must be between 1 and 256')
     if not 0 < cleanup_interval <= 60:
         raise ValueError("cleanup_interval must be greater than zero and at most 60 seconds")
     write_token = write_token or os.environ.get("REPORT_WRITE_TOKEN", "")
@@ -34,6 +60,15 @@ def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, r
     prune_expired()  # Remove downtime-expired records before accepting requests.
     last_cleanup = time.monotonic()
     class Handler(BaseHTTPRequestHandler):
+        def handle(self):
+            try:
+                super().handle()
+            except ConnectionError:
+                pass  # A disconnected peer is not an internal server failure.
+        def setup(self):
+            super().setup()
+            self.rfile.close()
+            self.rfile = io.BufferedReader(DeadlineReader(self.connection, header_timeout))
         def log_message(self,*args):pass
         def reply(self,code,data):
             body=json.dumps(data).encode();self.send_response(code)
@@ -58,7 +93,7 @@ def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, r
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 1<=length<=8*1024*1024:raise ValueError('Body must be 1 byte to 8 MB')
-                self.connection.settimeout(5)
+                self.rfile.raw.deadline = time.monotonic() + body_timeout
                 payload=json.loads(self.rfile.read(length))
                 if not isinstance(payload,dict) or payload.get('consent_to_upload') is not True:raise ValueError('Explicit upload consent is required')
                 bundle=payload.get('bundle',{})
@@ -89,6 +124,22 @@ def make_server(host="127.0.0.1", port=8080, directory=None, write_token=None, r
             self.reply(200,{'deleted':True})
     class ReportServer(ThreadingHTTPServer):
         daemon_threads = False  # Join handlers before closing their database.
+        slots = threading.BoundedSemaphore(max_connections)
+        def process_request(self, request, address):
+            # Admission occurs before ThreadingMixIn allocates a handler thread.
+            if not self.slots.acquire(blocking=False):
+                self.shutdown_request(request)
+                return
+            try:
+                super().process_request(request, address)
+            except BaseException:
+                self.slots.release()
+                raise
+        def process_request_thread(self, request, address):
+            try:
+                super().process_request_thread(request, address)
+            finally:
+                self.slots.release()
         def get_request(self):
             connection, address = super().get_request()
             connection.settimeout(5)
