@@ -33,8 +33,10 @@ try{
   await page.waitForFunction(()=>document.querySelector('#session-status').textContent==='Awaiting consent');
 
   // Real loopback worker, processes only. Never activate camera or audio in this test.
-  await page.goto('http://127.0.0.1:1420/');
+  check(process.env.IIM_DEV_BOOTSTRAP_SECRET?.length>=32,'Set IIM_DEV_BOOTSTRAP_SECRET for the launcher and browser test');
+  await page.goto('http://127.0.0.1:1420/#bootstrap='+encodeURIComponent(process.env.IIM_DEV_BOOTSTRAP_SECRET));
   await page.waitForFunction(()=>document.querySelector('#connection').textContent==='Local worker connected');
+  check(!new URL(page.url()).hash,'Bootstrap secret must be removed from the address bar');
   await page.locator('#policy-btn').click();
   await page.locator('#policy-phase').selectOption('coding');
   await page.locator('#policy-apps').fill('code.exe, zoom.exe');

@@ -76,3 +76,25 @@ for(const event of ['pagehide','beforeunload'])test(`${event} cancels pending an
 test('session stop releases devices even with failed worker RPC',async()=>{const f=fixture(),p=f.start(),s=stream();f.pending[0].resolve(s);await p;vm.runInContext('client={call:async()=>{throw Error("offline")}}',f.context);await f.element('#stop').listeners.click();stopped(s);assert.equal(f.element('#preflight-dialog').open,false);});
 test('native dialog close releases active devices',async()=>{const f=fixture(),p=f.start(),s=stream();f.pending[0].resolve(s);await p;const d=f.element('#preflight-dialog');d.open=false;d.listeners.close();stopped(s);});
 test('demo never requests hardware',async()=>{const f=fixture(true);await f.start();assert.equal(f.requests,0);});
+
+test('development bootstrap uses private fragment, clears it, and preserves reconnect access',async()=>{
+ const f=fixture(),requests=[],replaced=[];
+ f.context.location={hash:'#bootstrap=private-launch-secret',pathname:'/',search:''};
+ f.context.history={replaceState(...args){replaced.push(args);f.context.location.hash='';}};
+ f.context.fetch=async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({token:'worker-token'})};};
+ await vm.runInContext('fetchBootstrap()',f.context);
+ await vm.runInContext('fetchBootstrap()',f.context);
+ assert.equal(replaced.length,1);assert.equal(replaced[0][2],'/');
+ assert.equal(requests.length,2);
+ for(const r of requests){assert.equal(r.url,'/bootstrap.json');assert.equal(r.options.headers.Authorization,'Bearer private-launch-secret');assert.equal(r.options.cache,'no-store');}
+});
+test('a dashboard without a private launch link never requests worker credentials',async()=>{
+ const f=fixture();f.context.location.hash='';
+ f.context.fetch=()=>{throw Error('Bootstrap must not be fetched');};
+ await assert.rejects(vm.runInContext('fetchBootstrap()',f.context),/private dashboard link/);
+});
+test('desktop bootstrap continues to use its restricted native bridge',async()=>{
+ const f=fixture();let calls=0;
+ f.window.__TAURI__={core:{invoke:async op=>{assert.equal(op,'bootstrap');calls++;return {token:'native'};}}};
+ assert.equal((await vm.runInContext('fetchBootstrap()',f.context)).token,'native');assert.equal(calls,1);
+});

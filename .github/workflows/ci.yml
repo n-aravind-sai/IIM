@@ -43,6 +43,8 @@ jobs:
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: |
+          export IIM_DEV_BOOTSTRAP_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$IIM_DEV_BOOTSTRAP_SECRET"
           python scripts/dev.py > /tmp/iim-dev.log 2>&1 &
           IIM_DEV_PID=$!
           trap 'kill "$IIM_DEV_PID"' EXIT

@@ -220,10 +220,16 @@ window.addEventListener('pagehide',stopPreflight);
 window.addEventListener('beforeunload',stopPreflight);
 
 let reconnectTimer=null,reconnectAttempts=0;
+let devBootstrapSecret=null;
 async function fetchBootstrap(){
   if(window.__TAURI__)return await window.__TAURI__.core.invoke('bootstrap');
-  const r=await fetch('/bootstrap.json',{cache:'no-store'});
-  if(!r.ok)throw Error('Open the desktop app, run scripts/dev.py, or choose the synthetic demo.');
+  if(devBootstrapSecret===null){
+    devBootstrapSecret=new URLSearchParams(location.hash.slice(1)).get('bootstrap')||'';
+    if(devBootstrapSecret)history.replaceState(null,'',location.pathname+location.search);
+  }
+  if(!devBootstrapSecret)throw Error('Open the private dashboard link printed by scripts/dev.py, or use the desktop app.');
+  const r=await fetch('/bootstrap.json',{cache:'no-store',headers:{Authorization:`Bearer ${devBootstrapSecret}`}});
+  if(!r.ok)throw Error('Development authorization failed. Reopen the private link from the current launcher.');
   return await r.json();
 }
 function scheduleReconnect(){
