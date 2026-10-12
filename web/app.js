@@ -222,6 +222,7 @@ window.addEventListener('beforeunload',stopPreflight);
 let reconnectTimer=null,reconnectAttempts=0;
 let devBootstrapSecret=null;
 async function fetchBootstrap(){
+  if(window.top!==window.self)throw Error('Open the dashboard in a top-level window.');
   if(window.__TAURI__)return await window.__TAURI__.core.invoke('bootstrap');
   if(devBootstrapSecret===null){
     devBootstrapSecret=new URLSearchParams(location.hash.slice(1)).get('bootstrap')||'';

@@ -98,3 +98,10 @@ test('desktop bootstrap continues to use its restricted native bridge',async()=>
  f.window.__TAURI__={core:{invoke:async op=>{assert.equal(op,'bootstrap');calls++;return {token:'native'};}}};
  assert.equal((await vm.runInContext('fetchBootstrap()',f.context)).token,'native');assert.equal(calls,1);
 });
+test('embedded dashboard cannot obtain worker credentials even with a launch secret',async()=>{
+ const f=fixture();f.window.self=f.window;f.window.top={};
+ f.context.location={hash:'#bootstrap=private-launch-secret',pathname:'/',search:''};
+ f.context.history={replaceState(){}};
+ f.context.fetch=async()=>({ok:true,json:async()=>({token:'leaked'})});
+ await assert.rejects(vm.runInContext('fetchBootstrap()',f.context),/top-level/);
+});

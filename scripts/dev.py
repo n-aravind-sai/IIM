@@ -23,6 +23,11 @@ def make_dev_server(connection, bootstrap_secret, port=1420):
             super().__init__(*args, directory=str(root / "web"), **kwargs)
         def log_message(self, *args):
             pass
+        def end_headers(self):
+            self.send_header('Content-Security-Policy', "frame-ancestors 'none'")
+            self.send_header('X-Frame-Options', 'DENY')
+            self.send_header('Referrer-Policy', 'no-referrer')
+            super().end_headers()
         def do_GET(self):
             if self.headers.get("Host") not in (f"localhost:{self.server.server_port}", f"127.0.0.1:{self.server.server_port}"):
                 self.send_error(403); return

@@ -50,3 +50,10 @@ class DevelopmentSecurityTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertNotIn(self.secret.encode(), body)
         self.assertNotIn(self.connection['token'].encode(), body)
+
+    def test_all_dashboard_responses_forbid_framing(self):
+        for path in ('/', '/app.js', '/missing-page', '/bootstrap.json'):
+            with self.subTest(path=path):
+                _, headers, _ = self.request(path)
+                self.assertEqual(headers.get('Content-Security-Policy'), "frame-ancestors 'none'")
+                self.assertEqual(headers.get('X-Frame-Options'), 'DENY')
